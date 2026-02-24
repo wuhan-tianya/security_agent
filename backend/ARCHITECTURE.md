@@ -344,4 +344,5 @@
 - 更新 `.gitignore`：增加 `backend/data/*.db` 与 `backend/config/settings.local.json` 忽略规则。
 - 修复提示词路径加载：`backend/app/prompts/loader.py` 增加相对路径自动解析到 `backend/` 根目录，避免在仓库根目录启动时报 `prompts/system.md` 不存在。
 - 新增测试：`backend/tests/test_prompt_loader_paths.py`，验证不同启动目录下提示词文件可正确加载。
+- 目录迁移：`skills/` 移动到 `backend/skills/`；根目录 `data/` 合并到 `backend/data/`（保留原 backend 数据库，同时迁移根目录数据库为 `backend/data/security_agent.from_root.db`）。
 - 兼容性影响：无（新仓库初始实现）。

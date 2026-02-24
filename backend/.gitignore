@@ -23,7 +23,7 @@ dist/
 .eggs/
 
 # IDE/editor
-.idea/
+**/.idea/
 .vscode/
 *.swp
 *.swo
