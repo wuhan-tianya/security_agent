@@ -274,7 +274,7 @@
 
 ### 11.8 运行时配置（JSON）
 
-- 默认配置文件：`config/settings.json`
+- 默认配置文件：`backend/config/settings.json`
 - 可配置项（当前实现）：
   - `app_name`
   - `db_path`
@@ -337,4 +337,11 @@
 - 更新配置加载器：`app/core/config.py` 支持“默认值 + JSON + 环境变量覆盖”。
 - 新增测试：`tests/test_config_json.py`，验证 JSON 生效与环境变量覆盖优先级。
 - 新增 `.gitignore`：忽略 Python 缓存、虚拟环境、测试缓存、IDE 文件、本地数据库和本地敏感配置覆盖文件。
+- 新增本地 MCP 工具服务：`app/mcp/local_server.py`，提供 `/tools/list` 与 `/tools/call` 供本地联调。
+- 修复 LangGraph 节点注册：`app/graph/builder.py` 改为异步包装函数，避免 coroutine 未 await 导致 `/v1/chat/stream` 在 `run_started` 后中断。
+- 目录重构：后端代码迁移至 `backend/`（`app/`、`config/`、`prompts/`、`tests/`、`pyproject.toml`、`uv.lock`）。
+- 新增后端启动脚本：`backend/start_backend.sh`，用于一键 `uv sync` + `uvicorn` 启动。
+- 更新 `.gitignore`：增加 `backend/data/*.db` 与 `backend/config/settings.local.json` 忽略规则。
+- 修复提示词路径加载：`backend/app/prompts/loader.py` 增加相对路径自动解析到 `backend/` 根目录，避免在仓库根目录启动时报 `prompts/system.md` 不存在。
+- 新增测试：`backend/tests/test_prompt_loader_paths.py`，验证不同启动目录下提示词文件可正确加载。
 - 兼容性影响：无（新仓库初始实现）。

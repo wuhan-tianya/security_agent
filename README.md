@@ -4,15 +4,21 @@ FastAPI + LangGraph backend for multi-vehicle remote MCP routing.
 
 ## Quick Start
 
-### 1. Install dependencies (uv)
+### 1. Enter backend directory
+
+```bash
+cd backend
+```
+
+### 2. Install dependencies (uv)
 
 ```bash
 uv sync --extra dev
 ```
 
-### 2. Configure model/MCP parameters (JSON)
+### 3. Configure model/MCP parameters (JSON)
 
-Edit `config/settings.json`:
+Edit `backend/config/settings.json` (if you are in repo root), or `config/settings.json` (if already in `backend/`):
 
 ```json
 {
@@ -29,10 +35,10 @@ Optional override:
 - `CONFIG_FILE=/path/to/settings.json`
 - environment variables (e.g. `LLM_MODEL`) override JSON values.
 
-### 3. Run service
+### 4. Run service
 
 ```bash
-uv run uvicorn app.main:app --reload
+./start_backend.sh
 ```
 
 Service default address:
@@ -41,7 +47,7 @@ Service default address:
 http://127.0.0.1:8000
 ```
 
-### 4. Health check
+### 5. Health check
 
 ```bash
 curl http://127.0.0.1:8000/healthz
@@ -53,7 +59,7 @@ Expected:
 {"ok": true}
 ```
 
-### 5. Add a vehicle (required before MCP call)
+### 6. Add a vehicle (required before MCP call)
 
 ```bash
 curl -X POST http://127.0.0.1:8000/v1/vehicles \
@@ -69,7 +75,7 @@ curl -X POST http://127.0.0.1:8000/v1/vehicles \
   }'
 ```
 
-### 6. Start chat stream
+### 7. Start chat stream
 
 ```bash
 curl -N -X POST http://127.0.0.1:8000/v1/chat/stream \

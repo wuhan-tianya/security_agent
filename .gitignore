@@ -36,9 +36,13 @@ Thumbs.db
 data/*.db
 data/*.sqlite
 data/*.sqlite3
+backend/data/*.db
+backend/data/*.sqlite
+backend/data/*.sqlite3
 *.log
 
 # Local secrets/config overrides
 .env
 .env.*
 config/settings.local.json
+backend/config/settings.local.json
