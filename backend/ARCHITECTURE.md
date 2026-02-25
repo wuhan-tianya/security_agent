@@ -159,6 +159,7 @@
 {
   "session_id": "session-001",
   "user_input": "请连接 10.1.1.2 并做安全检查",
+  "target_vehicle_ip": "10.1.1.2",
   "model": "gpt-4o-mini"
 }
 ```
@@ -349,4 +350,6 @@
 - 修复 MCP HTTP 客户端：`backend/app/mcp/client.py` 禁用环境代理（`trust_env=False`），避免 localhost/private IP 被系统代理转发导致 `502 Bad Gateway`；并增强 HTTP 错误信息输出（状态码+响应体摘要）。
 - 改进 LLM 调用稳定性：`backend/app/llm/openai_compatible.py` 禁用环境代理并增强 HTTP 错误提示；`backend/app/graph/nodes.py` 增加模型总结失败时的本地工具结果摘要兜底，避免把异常原文直接返回给用户。
 - 更新 `backend/README.md`：补充 Kimi/OpenAI-Compatible 的 `llm_base_url` 与 `403 Forbidden` 排查说明。
+- 改进车机选择逻辑：`backend/app/graph/nodes.py` 仅允许选择在线车机；无显式选择时优先匹配车机名称或复用会话 `last_vehicle_ip`，实现多轮对话持续使用已选车机；新增测试覆盖名称匹配与复用逻辑。
+- 调整车机选择入口：`backend/app/api/schemas.py` 增加 `target_vehicle_ip` 字段；`backend/app/graph/nodes.py` 仅接受接口传入 IP 作为选择，未选择时提示；支持复用会话 `last_vehicle_ip` 以实现多轮对话。
 - 兼容性影响：无（新仓库初始实现）。

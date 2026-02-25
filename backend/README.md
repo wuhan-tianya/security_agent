@@ -106,6 +106,7 @@ curl -N -X POST http://127.0.0.1:8000/v1/chat/stream \
   -d '{
     "session_id": "session-001",
     "user_input": "请连接 10.1.1.2 并做安全检查",
+    "target_vehicle_ip": "10.1.1.2",
     "model": "gpt-4o-mini"
   }'
 ```

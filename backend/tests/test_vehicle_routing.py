@@ -41,6 +41,7 @@ async def test_valid_ip_routes_to_vehicle_and_calls_mcp(repo: Repository):
     state = {
         "session_id": "s1",
         "user_input": "请连接 10.1.1.2 做安全检查",
+        "selected_vehicle_ip": "10.1.1.2",
         "events": [],
     }
     state = await parse_target_vehicle_node(state)
@@ -66,7 +67,7 @@ async def test_no_ip_requires_vehicle_selection(repo: Repository):
 
 @pytest.mark.asyncio
 async def test_unregistered_ip_requires_selection(repo: Repository):
-    state = {"session_id": "s1", "user_input": "检查 10.8.8.8", "events": []}
+    state = {"session_id": "s1", "user_input": "检查 10.8.8.8", "selected_vehicle_ip": "10.8.8.8", "events": []}
 
     state = await parse_target_vehicle_node(state)
     state = await resolve_vehicle_node(state, repo)
@@ -77,12 +78,35 @@ async def test_unregistered_ip_requires_selection(repo: Repository):
 @pytest.mark.asyncio
 async def test_unconfigured_vehicle_requires_setup(repo: Repository):
     repo.upsert_vehicle("car-b", "10.2.2.3", None, status="online", is_configured=False)
-    state = {"session_id": "s1", "user_input": "连接 10.2.2.3", "events": []}
+    state = {"session_id": "s1", "user_input": "连接 10.2.2.3", "selected_vehicle_ip": "10.2.2.3", "events": []}
 
     state = await parse_target_vehicle_node(state)
     state = await resolve_vehicle_node(state, repo)
 
     assert state["error_code"] == "VEHICLE_NOT_CONFIGURED"
+
+
+@pytest.mark.asyncio
+async def test_reuse_last_vehicle_when_no_ip(repo: Repository):
+    repo.upsert_vehicle("car-a", "10.1.1.2", "http://10.1.1.2:9000", status="online", is_configured=True)
+    repo.set_last_vehicle_ip("s1", "10.1.1.2")
+
+    state = {"session_id": "s1", "user_input": "继续分析", "events": []}
+    state = await parse_target_vehicle_node(state)
+    state = await resolve_vehicle_node(state, repo)
+
+    assert state["selected_vehicle_ip"] == "10.1.1.2"
+
+
+@pytest.mark.asyncio
+async def test_vehicle_name_selection(repo: Repository):
+    repo.upsert_vehicle("car-a", "10.1.1.2", "http://10.1.1.2:9000", status="online", is_configured=True)
+
+    state = {"session_id": "s1", "user_input": "请连接 car-a", "events": []}
+    state = await parse_target_vehicle_node(state)
+    state = await resolve_vehicle_node(state, repo)
+
+    assert state["error_code"] == "VEHICLE_NOT_SELECTED"
 
 
 def test_session_memory_isolated(repo: Repository):

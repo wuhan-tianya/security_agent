@@ -86,12 +86,10 @@ async def memory_read_node(state: AgentState, repo: Repository) -> AgentState:
 
 
 async def parse_target_vehicle_node(state: AgentState) -> AgentState:
-    text = state["user_input"]
-    parsed_ip = None
-    for match in _IP_PATTERN.findall(text):
-        if _valid_ipv4(match):
-            parsed_ip = match
-            break
+    # Only accept vehicle selection via API field.
+    parsed_ip = state.get("selected_vehicle_ip")
+    if parsed_ip and not _valid_ipv4(parsed_ip):
+        parsed_ip = None
     state["parsed_vehicle_ip"] = parsed_ip
     append_event(state, "vehicle_ip_parsed", {"ip": parsed_ip})
     return state
@@ -100,6 +98,8 @@ async def parse_target_vehicle_node(state: AgentState) -> AgentState:
 async def resolve_vehicle_node(state: AgentState, repo: Repository) -> AgentState:
     parsed_ip = state.get("parsed_vehicle_ip")
     vehicles = repo.list_vehicles()
+
+    online_vehicles = [v for v in vehicles if v.status == "online"]
     state["available_vehicles"] = [
         {
             "vehicle_name": v.vehicle_name,
@@ -107,25 +107,51 @@ async def resolve_vehicle_node(state: AgentState, repo: Repository) -> AgentStat
             "status": v.status,
             "is_configured": v.is_configured,
         }
-        for v in vehicles
+        for v in online_vehicles
     ]
 
+    # If no explicit IP, reuse last selection for multi-turn chats.
+    vehicle = None
     if not parsed_ip:
-        state["error_code"] = "VEHICLE_NOT_SELECTED"
-        state["error_message"] = "未检测到车机 IP"
-        append_event(state, "vehicle_selection_required", {"reason": "ip_missing", "vehicles": state["available_vehicles"]})
-        return state
+        last_ip = repo.get_last_vehicle_ip(state["session_id"])
+        if last_ip:
+            vehicle = repo.get_vehicle_by_ip(last_ip)
 
-    vehicle = repo.get_vehicle_by_ip(parsed_ip)
+        if vehicle is None:
+            state["error_code"] = "VEHICLE_NOT_SELECTED"
+            state["error_message"] = "未检测到车机选择（请通过接口传入在线车机 IP）"
+            append_event(
+                state,
+                "vehicle_selection_required",
+                {"reason": "ip_missing", "vehicles": state["available_vehicles"]},
+            )
+            return state
+    else:
+        vehicle = repo.get_vehicle_by_ip(parsed_ip)
+
     if not vehicle:
         state["error_code"] = "VEHICLE_NOT_REGISTERED"
         state["error_message"] = f"车机 IP 未注册: {parsed_ip}"
-        append_event(state, "vehicle_selection_required", {"reason": "ip_not_registered", "ip": parsed_ip, "vehicles": state["available_vehicles"]})
+        append_event(
+            state,
+            "vehicle_selection_required",
+            {"reason": "ip_not_registered", "ip": parsed_ip, "vehicles": state["available_vehicles"]},
+        )
+        return state
+
+    if vehicle.status != "online":
+        state["error_code"] = "VEHICLE_OFFLINE"
+        state["error_message"] = f"车机不在线: {vehicle.ip}"
+        append_event(
+            state,
+            "vehicle_selection_required",
+            {"reason": "vehicle_offline", "ip": vehicle.ip, "vehicles": state["available_vehicles"]},
+        )
         return state
 
     if not vehicle.is_configured or not vehicle.mcp_endpoint:
         state["error_code"] = "VEHICLE_NOT_CONFIGURED"
-        state["error_message"] = f"车机未完成 MCP 配置: {parsed_ip}"
+        state["error_message"] = f"车机未完成 MCP 配置: {vehicle.ip}"
         state["selected_vehicle_ip"] = vehicle.ip
         state["selected_vehicle_name"] = vehicle.vehicle_name
         append_event(

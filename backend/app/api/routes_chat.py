@@ -19,7 +19,12 @@ def get_agent_service() -> AgentService:
 @router.post("/chat/stream")
 async def chat_stream(req: ChatStreamRequest, service: AgentService = Depends(get_agent_service)):
     return StreamingResponse(
-        service.stream_sse_events(session_id=req.session_id, user_input=req.user_input, model=req.model),
+        service.stream_sse_events(
+            session_id=req.session_id,
+            user_input=req.user_input,
+            model=req.model,
+            target_vehicle_ip=req.target_vehicle_ip,
+        ),
         media_type="text/event-stream",
         headers={"Cache-Control": "no-cache", "Connection": "keep-alive"},
     )

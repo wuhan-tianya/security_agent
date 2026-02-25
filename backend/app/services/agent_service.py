@@ -18,19 +18,32 @@ class AgentService:
         self.llm_client = OpenAICompatibleClient()
         self.graph = build_graph(repo, self.prompt_loader, self.mcp_manager, self.llm_client)
 
-    async def run(self, session_id: str, user_input: str, model: str | None = None) -> dict[str, Any]:
+    async def run(
+        self,
+        session_id: str,
+        user_input: str,
+        model: str | None = None,
+        target_vehicle_ip: str | None = None,
+    ) -> dict[str, Any]:
         initial_state: dict[str, Any] = {
             "session_id": session_id,
             "user_input": user_input,
             "model": model,
+            "selected_vehicle_ip": target_vehicle_ip,
             "events": [],
         }
         result = await self.graph.ainvoke(initial_state)
         return result
 
-    async def stream_sse_events(self, session_id: str, user_input: str, model: str | None = None) -> AsyncIterator[str]:
+    async def stream_sse_events(
+        self,
+        session_id: str,
+        user_input: str,
+        model: str | None = None,
+        target_vehicle_ip: str | None = None,
+    ) -> AsyncIterator[str]:
         yield self._format_sse("run_started", {"session_id": session_id})
-        result = await self.run(session_id, user_input, model)
+        result = await self.run(session_id, user_input, model, target_vehicle_ip)
 
         for evt in result.get("events", []):
             yield self._format_sse(evt["event"], evt["data"])
