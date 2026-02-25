@@ -345,4 +345,8 @@
 - 修复提示词路径加载：`backend/app/prompts/loader.py` 增加相对路径自动解析到 `backend/` 根目录，避免在仓库根目录启动时报 `prompts/system.md` 不存在。
 - 新增测试：`backend/tests/test_prompt_loader_paths.py`，验证不同启动目录下提示词文件可正确加载。
 - 目录迁移：`skills/` 移动到 `backend/skills/`；根目录 `data/` 合并到 `backend/data/`（保留原 backend 数据库，同时迁移根目录数据库为 `backend/data/security_agent.from_root.db`）。
+- 新增 MCP 启动脚本：`backend/start_mcp.sh`，支持通过 `MCP_HOST`/`MCP_PORT` 启动本地 `app.mcp.local_server`。
+- 修复 MCP HTTP 客户端：`backend/app/mcp/client.py` 禁用环境代理（`trust_env=False`），避免 localhost/private IP 被系统代理转发导致 `502 Bad Gateway`；并增强 HTTP 错误信息输出（状态码+响应体摘要）。
+- 改进 LLM 调用稳定性：`backend/app/llm/openai_compatible.py` 禁用环境代理并增强 HTTP 错误提示；`backend/app/graph/nodes.py` 增加模型总结失败时的本地工具结果摘要兜底，避免把异常原文直接返回给用户。
+- 更新 `backend/README.md`：补充 Kimi/OpenAI-Compatible 的 `llm_base_url` 与 `403 Forbidden` 排查说明。
 - 兼容性影响：无（新仓库初始实现）。

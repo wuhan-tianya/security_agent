@@ -35,6 +35,13 @@ Optional override:
 - `CONFIG_FILE=/path/to/settings.json`
 - environment variables (e.g. `LLM_MODEL`) override JSON values.
 
+Kimi/OpenAI-Compatible 注意事项：
+- `llm_base_url` 只填 API base（例如 `https://api.kimi.com/coding/v1`），不要包含 `/chat/completions`。
+- 若出现 `403 Forbidden`，优先检查：
+  - `llm_api_key` 是否有效且有对应模型权限。
+  - `llm_model` 是否在当前账号可用。
+  - 网关/代理是否限制该路径（后端已默认禁用环境代理转发）。
+
 ### 4. Run service
 
 ```bash
@@ -46,6 +53,22 @@ Service default address:
 ```text
 http://127.0.0.1:8000
 ```
+
+### 4.1 Run local MCP tool server
+
+```bash
+./start_mcp.sh
+```
+
+Default MCP address:
+
+```text
+http://127.0.0.1:19000
+```
+
+Optional env:
+- `MCP_HOST` (default `127.0.0.1`)
+- `MCP_PORT` (default `19000`)
 
 ### 5. Health check
 

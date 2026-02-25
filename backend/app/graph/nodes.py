@@ -28,6 +28,42 @@ def _valid_ipv4(value: str) -> bool:
     return True
 
 
+def _fallback_summary_from_tool(tool_name: str | None, tool_result: dict[str, Any] | None) -> str:
+    if not tool_result:
+        return "工具调用已完成，但没有返回可用结果。"
+
+    success = bool(tool_result.get("success"))
+    data = tool_result.get("data", {})
+    error = tool_result.get("error") or ""
+    title = f"工具 `{tool_name or 'unknown'}` 执行结果："
+
+    if not success:
+        return f"{title}\n- 状态：失败\n- 错误：{error or 'unknown'}"
+
+    lines = [title, "- 状态：成功"]
+    if isinstance(data, dict):
+        if "risk_level" in data:
+            lines.append(f"- 风险等级：{data.get('risk_level')}")
+        if "reachable" in data:
+            lines.append(f"- 可达性：{data.get('reachable')}")
+        if "latency_ms" in data:
+            lines.append(f"- 延迟：{data.get('latency_ms')} ms")
+        if "findings" in data and isinstance(data.get("findings"), list):
+            findings = data.get("findings") or []
+            if findings:
+                lines.append("- 关键发现：")
+                for item in findings[:5]:
+                    lines.append(f"  - {item}")
+        if "summary" in data and data.get("summary"):
+            lines.append(f"- 摘要：{data.get('summary')}")
+        if "note" in data and data.get("note"):
+            lines.append(f"- 备注：{data.get('note')}")
+
+    if len(lines) == 2:
+        lines.append(f"- 原始结果：{str(tool_result)[:300]}")
+    return "\n".join(lines)
+
+
 async def load_prompt_node(state: AgentState, prompt_loader: PromptLoader) -> AgentState:
     state["system_prompt"] = prompt_loader.load_system_prompt()
     state["user_template"] = prompt_loader.load_user_template()
@@ -225,7 +261,8 @@ async def reflect_node(state: AgentState, llm_client: OpenAICompatibleClient) ->
     try:
         final = await llm_client.chat_completion(messages, model=state.get("model"))
     except Exception as exc:
-        final = f"已完成工具调用，模型总结失败：{exc}\n工具原始结果：{tool_result_text}"
+        final = _fallback_summary_from_tool(state.get("selected_tool"), state.get("tool_result"))
+        append_event(state, "reasoning_trace", {"decision": "llm_summary_failed_fallback", "error": str(exc)[:300]})
 
     state["final_response"] = final
     append_event(state, "reasoning_trace", {"decision": "mcp_result_reflected", "tool": state.get("selected_tool")})

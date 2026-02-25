@@ -40,7 +40,8 @@ class HttpMCPClient(BaseMCPClient):
 
     async def list_tools(self, endpoint: str) -> list[MCPTool]:
         try:
-            async with httpx.AsyncClient(timeout=self.timeout) as client:
+            # trust_env=False avoids accidental proxy routing for localhost/private IP MCP endpoints.
+            async with httpx.AsyncClient(timeout=self.timeout, trust_env=False) as client:
                 resp = await client.get(f"{endpoint.rstrip('/')}/tools/list")
                 resp.raise_for_status()
                 payload = resp.json()
@@ -56,12 +57,18 @@ class HttpMCPClient(BaseMCPClient):
             return tools
         except httpx.TimeoutException as exc:
             raise MCPError("MCP_CONNECT_TIMEOUT", f"MCP list_tools timeout: {exc}") from exc
+        except httpx.HTTPStatusError as exc:
+            body = exc.response.text[:500] if exc.response is not None else ""
+            raise MCPError(
+                "MCP_UNAVAILABLE",
+                f"MCP list_tools HTTP {exc.response.status_code}: {body}",
+            ) from exc
         except Exception as exc:
             raise MCPError("MCP_UNAVAILABLE", f"MCP list_tools failed: {exc}") from exc
 
     async def call_tool(self, endpoint: str, tool_name: str, arguments: dict[str, Any]) -> dict[str, Any]:
         try:
-            async with httpx.AsyncClient(timeout=self.timeout) as client:
+            async with httpx.AsyncClient(timeout=self.timeout, trust_env=False) as client:
                 resp = await client.post(
                     f"{endpoint.rstrip('/')}/tools/call",
                     json={"name": tool_name, "arguments": arguments},
@@ -70,6 +77,12 @@ class HttpMCPClient(BaseMCPClient):
                 return resp.json()
         except httpx.TimeoutException as exc:
             raise MCPError("MCP_CONNECT_TIMEOUT", f"MCP call timeout: {exc}") from exc
+        except httpx.HTTPStatusError as exc:
+            body = exc.response.text[:500] if exc.response is not None else ""
+            raise MCPError(
+                "MCP_UNAVAILABLE",
+                f"MCP call HTTP {exc.response.status_code}: {body}",
+            ) from exc
         except Exception as exc:
             raise MCPError("MCP_UNAVAILABLE", f"MCP call failed: {exc}") from exc
 
