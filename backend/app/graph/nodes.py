@@ -323,6 +323,8 @@ async def reflect_node(state: AgentState, llm_client: OpenAICompatibleClient) ->
 
     try:
         final = await llm_client.chat_completion(messages, model=state.get("model"))
+        state["llm_response_preview"] = final[:500]
+        append_event(state, "llm_response", {"preview": final[:500]})
     except Exception as exc:
         final = _fallback_summary_from_tool(state.get("selected_tool"), state.get("tool_result"))
         append_event(state, "reasoning_trace", {"decision": "llm_summary_failed_fallback", "error": str(exc)[:300]})

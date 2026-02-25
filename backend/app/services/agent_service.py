@@ -49,6 +49,14 @@ class AgentService:
             yield self._format_sse(evt["event"], evt["data"])
 
         final_response = result.get("final_response", "")
+        # Log model response (preview) for debugging.
+        if final_response:
+            try:
+                from loguru import logger
+
+                logger.bind(request_id="sse").info("llm_response_preview={}", final_response[:500])
+            except Exception:
+                pass
         for token in final_response.split():
             yield self._format_sse("llm_token", {"token": token})
 
