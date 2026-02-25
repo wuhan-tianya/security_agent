@@ -64,6 +64,33 @@ def _fallback_summary_from_tool(tool_name: str | None, tool_result: dict[str, An
     return "\n".join(lines)
 
 
+async def classify_security_intent(state: AgentState, llm_client: OpenAICompatibleClient) -> AgentState:
+    # Allow tests or callers to pre-fill the decision.
+    if state.get("security_intent") is not None:
+        return state
+
+    text = state.get("user_input", "")
+    prompt = (
+        "You are a binary classifier. Determine if the user's intent is related to security testing "
+        "of a vehicle/ECU/app (e.g., security scan, vulnerability analysis, permission/cert checks). "
+        "Reply with only YES or NO.\n\n"
+        f"User: {text}"
+    )
+    messages = [
+        {"role": "system", "content": "Answer with only YES or NO."},
+        {"role": "user", "content": prompt},
+    ]
+    try:
+        resp = await llm_client.chat_completion(messages, model=state.get("model"))
+        normalized = resp.strip().upper()
+        state["security_intent"] = normalized.startswith("YES")
+        append_event(state, "reasoning_trace", {"decision": "intent_classified", "security_intent": state["security_intent"]})
+    except Exception as exc:
+        state["security_intent"] = False
+        append_event(state, "reasoning_trace", {"decision": "intent_classify_failed", "error": str(exc)[:300]})
+    return state
+
+
 async def load_prompt_node(state: AgentState, prompt_loader: PromptLoader) -> AgentState:
     state["system_prompt"] = prompt_loader.load_system_prompt()
     state["user_template"] = prompt_loader.load_user_template()
@@ -219,6 +246,11 @@ async def ask_vehicle_config_node(state: AgentState) -> AgentState:
 
 
 async def mcp_call_node(state: AgentState, mcp_manager: MCPClientManager) -> AgentState:
+    if not state.get("security_intent"):
+        state["available_tools"] = []
+        append_event(state, "reasoning_trace", {"decision": "skip_mcp_non_security_intent"})
+        return state
+
     endpoint = state["selected_vehicle_endpoint"]
     client = mcp_manager.client_for_endpoint(endpoint)
     query = state["user_input"]
@@ -275,12 +307,17 @@ async def reflect_node(state: AgentState, llm_client: OpenAICompatibleClient) ->
     user_prompt = render_user_prompt(state["user_template"], state["user_input"], state.get("memory_context", ""))
     tool_policy = state["tool_policy"]
 
-    tool_result_text = str(state.get("tool_result", {}))
+    tool_result = state.get("tool_result")
+    tool_result_text = str(tool_result) if tool_result is not None else ""
     messages = [
         {"role": "system", "content": system_prompt + "\n" + tool_policy},
         {
             "role": "user",
-            "content": f"{user_prompt}\n\n工具结果:\n{tool_result_text}\n\n请给出简洁的安全分析结论。",
+            "content": (
+                f"{user_prompt}\n\n工具结果:\n{tool_result_text}\n\n请给出简洁的安全分析结论。"
+                if tool_result is not None
+                else user_prompt
+            ),
         },
     ]
 

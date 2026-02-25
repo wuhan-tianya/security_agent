@@ -8,6 +8,7 @@ class ChatStreamRequest(BaseModel):
     user_input: str = Field(min_length=1)
     model: str | None = None
     target_vehicle_ip: str | None = None
+    vehicle_ip: str | None = None
 
 
 class VehicleUpsertRequest(BaseModel):

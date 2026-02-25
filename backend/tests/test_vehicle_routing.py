@@ -50,6 +50,7 @@ async def test_valid_ip_routes_to_vehicle_and_calls_mcp(repo: Repository):
     assert state["selected_vehicle_ip"] == "10.1.1.2"
     assert state.get("error_code") is None
 
+    state["security_intent"] = True
     state = await mcp_call_node(state, _FakeManager())
     assert state["tool_result"]["ok"] is True
 
@@ -118,3 +119,22 @@ def test_session_memory_isolated(repo: Repository):
 
     assert len(m1) == 1 and m1[0]["content"] == "a"
     assert len(m2) == 1 and m2[0]["content"] == "b"
+
+
+@pytest.mark.asyncio
+async def test_skip_mcp_for_non_security_intent(repo: Repository):
+    repo.upsert_vehicle("car-a", "10.1.1.2", "http://10.1.1.2:9000", status="online", is_configured=True)
+    state = {
+        "session_id": "s1",
+        "user_input": "今天天气怎么样",
+        "selected_vehicle_ip": "10.1.1.2",
+        "events": [],
+    }
+
+    state = await parse_target_vehicle_node(state)
+    state = await resolve_vehicle_node(state, repo)
+    state["security_intent"] = False
+    state = await mcp_call_node(state, _FakeManager())
+
+    assert state.get("selected_tool") is None
+    assert state.get("tool_result") is None

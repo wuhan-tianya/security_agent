@@ -352,4 +352,7 @@
 - 更新 `backend/README.md`：补充 Kimi/OpenAI-Compatible 的 `llm_base_url` 与 `403 Forbidden` 排查说明。
 - 改进车机选择逻辑：`backend/app/graph/nodes.py` 仅允许选择在线车机；无显式选择时优先匹配车机名称或复用会话 `last_vehicle_ip`，实现多轮对话持续使用已选车机；新增测试覆盖名称匹配与复用逻辑。
 - 调整车机选择入口：`backend/app/api/schemas.py` 增加 `target_vehicle_ip` 字段；`backend/app/graph/nodes.py` 仅接受接口传入 IP 作为选择，未选择时提示；支持复用会话 `last_vehicle_ip` 以实现多轮对话。
+- 兼容前端字段：`backend/app/api/schemas.py` 增加 `vehicle_ip` 兼容字段；`backend/app/api/routes_chat.py` 允许 `vehicle_ip` 回退到 `target_vehicle_ip`，避免前端字段不一致导致反复提示未选车机。
+- 增加安全意图门控：`backend/app/graph/nodes.py` 仅在用户意图与安全测试相关时调用 MCP；新增测试覆盖非安全意图时跳过 MCP。
+- 改用模型分类器：`backend/app/graph/nodes.py` 通过 LLM 二分类判断安全测试意图，非安全意图不调用 MCP；`backend/app/graph/builder.py` 新增分类节点；测试用例显式设置 `security_intent` 以避免外部 LLM 依赖。
 - 兼容性影响：无（新仓库初始实现）。

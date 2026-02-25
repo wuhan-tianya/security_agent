@@ -25,6 +25,7 @@ class AgentState(TypedDict, total=False):
     available_tools: list[dict[str, Any]]
     selected_tool: str | None
     tool_result: dict[str, Any] | None
+    security_intent: bool | None
 
     final_response: str
     events: list[dict[str, Any]]

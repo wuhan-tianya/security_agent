@@ -5,6 +5,7 @@ from langgraph.graph import END, StateGraph
 from app.graph.nodes import (
     ask_vehicle_config_node,
     ask_vehicle_selection_node,
+    classify_security_intent,
     decide_vehicle_branch,
     load_prompt_node,
     mcp_call_node,
@@ -36,6 +37,9 @@ def build_graph(repo: Repository, prompt_loader: PromptLoader, mcp_manager: MCPC
     async def _mcp_call(state):
         return await mcp_call_node(state, mcp_manager)
 
+    async def _classify_intent(state):
+        return await classify_security_intent(state, llm_client)
+
     async def _reflect(state):
         return await reflect_node(state, llm_client)
 
@@ -48,6 +52,7 @@ def build_graph(repo: Repository, prompt_loader: PromptLoader, mcp_manager: MCPC
     graph.add_node("resolve_vehicle", _resolve_vehicle)
     graph.add_node("ask_vehicle_selection", ask_vehicle_selection_node)
     graph.add_node("ask_vehicle_config", ask_vehicle_config_node)
+    graph.add_node("classify_intent", _classify_intent)
     graph.add_node("mcp_call", _mcp_call)
     graph.add_node("reflect", _reflect)
     graph.add_node("memory_write", _memory_write)
@@ -61,12 +66,13 @@ def build_graph(repo: Repository, prompt_loader: PromptLoader, mcp_manager: MCPC
         "resolve_vehicle",
         decide_vehicle_branch,
         {
-            "vehicle_ready": "mcp_call",
+            "vehicle_ready": "classify_intent",
             "vehicle_missing": "ask_vehicle_selection",
             "vehicle_unconfigured": "ask_vehicle_config",
         },
     )
 
+    graph.add_edge("classify_intent", "mcp_call")
     graph.add_edge("mcp_call", "reflect")
     graph.add_edge("ask_vehicle_selection", "reflect")
     graph.add_edge("ask_vehicle_config", "reflect")
