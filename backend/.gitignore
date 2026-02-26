@@ -46,3 +46,4 @@ backend/data/*.sqlite3
 .env.*
 config/settings.local.json
 backend/config/settings.local.json
+backend/config/settings.json
