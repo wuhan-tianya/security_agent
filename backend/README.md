@@ -1,6 +1,6 @@
 # Security Agent
 
-FastAPI + LangGraph backend for multi-vehicle remote MCP routing.
+FastAPI + LangGraph backend for local skill-driven security tooling.
 
 ## Quick Start
 
@@ -16,7 +16,7 @@ cd backend
 uv sync --extra dev
 ```
 
-### 3. Configure model/MCP parameters (JSON)
+### 3. Configure model parameters (JSON)
 
 Edit `backend/config/settings.json` (if you are in repo root), or `config/settings.json` (if already in `backend/`):
 
@@ -25,9 +25,7 @@ Edit `backend/config/settings.json` (if you are in repo root), or `config/settin
   "llm_base_url": "http://localhost:8001/v1",
   "llm_api_key": "",
   "llm_model": "gpt-4o-mini",
-  "llm_timeout_seconds": 30,
-  "mcp_mode": "hybrid",
-  "mcp_timeout_seconds": 30
+  "llm_timeout_seconds": 30
 }
 ```
 
@@ -54,22 +52,6 @@ Service default address:
 http://127.0.0.1:8000
 ```
 
-### 4.1 Run local MCP tool server
-
-```bash
-./start_mcp.sh
-```
-
-Default MCP address:
-
-```text
-http://127.0.0.1:19000
-```
-
-Optional env:
-- `MCP_HOST` (default `127.0.0.1`)
-- `MCP_PORT` (default `19000`)
-
 ### 5. Health check
 
 ```bash
@@ -82,31 +64,14 @@ Expected:
 {"ok": true}
 ```
 
-### 6. Add a vehicle (required before MCP call)
-
-```bash
-curl -X POST http://127.0.0.1:8000/v1/vehicles \
-  -H "Content-Type: application/json" \
-  -d '{
-    "vehicle_name": "car-a",
-    "ip": "10.1.1.2",
-    "mcp_endpoint": "http://10.1.1.2:9000",
-    "status": "online",
-    "is_configured": true,
-    "auth_type": "none",
-    "auth_secret_ref": null
-  }'
-```
-
-### 7. Start chat stream
+### 6. Start chat stream
 
 ```bash
 curl -N -X POST http://127.0.0.1:8000/v1/chat/stream \
   -H "Content-Type: application/json" \
   -d '{
     "session_id": "session-001",
-    "user_input": "请连接 10.1.1.2 并做安全检查",
-    "target_vehicle_ip": "10.1.1.2",
+    "user_input": "请做安全检查",
     "model": "gpt-4o-mini"
   }'
 ```

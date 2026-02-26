@@ -8,7 +8,6 @@ from app.core.config import get_settings
 def test_json_config_loaded(tmp_path, monkeypatch):
     cfg = {
         "llm_model": "test-model-from-json",
-        "mcp_mode": "http",
         "llm_timeout_seconds": 55,
     }
     cfg_file = tmp_path / "settings.json"
@@ -19,7 +18,6 @@ def test_json_config_loaded(tmp_path, monkeypatch):
     settings = get_settings()
 
     assert settings.llm_model == "test-model-from-json"
-    assert settings.mcp_mode == "http"
     assert settings.llm_timeout_seconds == 55
 
 

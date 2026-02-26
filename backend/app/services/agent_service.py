@@ -5,31 +5,29 @@ from typing import Any, AsyncIterator
 
 from app.graph.builder import build_graph
 from app.llm.openai_compatible import OpenAICompatibleClient
-from app.mcp.client import MCPClientManager
 from app.memory.repository import Repository
 from app.prompts.loader import PromptLoader
+from app.skills.registry import SkillRegistry
 
 
 class AgentService:
     def __init__(self, repo: Repository) -> None:
         self.repo = repo
         self.prompt_loader = PromptLoader()
-        self.mcp_manager = MCPClientManager()
+        self.registry = SkillRegistry()
         self.llm_client = OpenAICompatibleClient()
-        self.graph = build_graph(repo, self.prompt_loader, self.mcp_manager, self.llm_client)
+        self.graph = build_graph(repo, self.prompt_loader, self.registry, self.llm_client)
 
     async def run(
         self,
         session_id: str,
         user_input: str,
         model: str | None = None,
-        target_vehicle_ip: str | None = None,
     ) -> dict[str, Any]:
         initial_state: dict[str, Any] = {
             "session_id": session_id,
             "user_input": user_input,
             "model": model,
-            "selected_vehicle_ip": target_vehicle_ip,
             "events": [],
         }
         result = await self.graph.ainvoke(initial_state)
@@ -40,10 +38,9 @@ class AgentService:
         session_id: str,
         user_input: str,
         model: str | None = None,
-        target_vehicle_ip: str | None = None,
     ) -> AsyncIterator[str]:
         yield self._format_sse("run_started", {"session_id": session_id})
-        result = await self.run(session_id, user_input, model, target_vehicle_ip)
+        result = await self.run(session_id, user_input, model)
 
         for evt in result.get("events", []):
             yield self._format_sse(evt["event"], evt["data"])

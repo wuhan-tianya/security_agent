@@ -30,7 +30,6 @@ class Database:
                 """
                 CREATE TABLE IF NOT EXISTS sessions (
                     session_id TEXT PRIMARY KEY,
-                    last_vehicle_ip TEXT,
                     created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
                     updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
                     metadata_json TEXT
@@ -56,18 +55,5 @@ class Database:
                     FOREIGN KEY(session_id) REFERENCES sessions(session_id)
                 );
 
-                CREATE TABLE IF NOT EXISTS vehicles (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    vehicle_name TEXT NOT NULL,
-                    ip TEXT NOT NULL UNIQUE,
-                    mcp_endpoint TEXT,
-                    auth_type TEXT DEFAULT 'none',
-                    auth_secret_ref TEXT,
-                    status TEXT NOT NULL DEFAULT 'offline',
-                    is_configured INTEGER NOT NULL DEFAULT 0,
-                    last_seen_at TEXT,
-                    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-                    updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
-                );
                 """
             )

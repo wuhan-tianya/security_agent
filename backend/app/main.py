@@ -11,7 +11,6 @@ from app.api.routes_chat import router as chat_router
 from app.api.routes_tools import router as tools_router
 from app.core.config import get_settings
 from app.db.database import Database
-from app.mcp.client import MCPClientManager
 from app.memory.repository import Repository
 from app.services.agent_service import AgentService
 
@@ -58,11 +57,9 @@ def on_startup() -> None:
     db.init_schema()
 
     repo = Repository(db)
-    mcp = MCPClientManager()
 
     app.state.db = db
     app.state.repo = repo
-    app.state.mcp_manager = mcp
     app.state.agent_service = AgentService(repo)
 
 

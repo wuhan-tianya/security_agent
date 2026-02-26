@@ -1,31 +1,14 @@
 from __future__ import annotations
 
-import re
 from typing import Any
 
 from app.graph.events import append_event
 from app.graph.state import AgentState
 from app.llm.openai_compatible import OpenAICompatibleClient
-from app.mcp.client import MCPClientManager, MCPError
+from app.skills.registry import SkillRegistry
 from app.memory.repository import Repository
 from app.prompts.loader import PromptLoader
 from app.prompts.renderer import render_user_prompt
-
-
-_IP_PATTERN = re.compile(r"\b(?:\d{1,3}\.){3}\d{1,3}\b")
-
-
-def _valid_ipv4(value: str) -> bool:
-    parts = value.split(".")
-    if len(parts) != 4:
-        return False
-    for p in parts:
-        if not p.isdigit():
-            return False
-        n = int(p)
-        if n < 0 or n > 255:
-            return False
-    return True
 
 
 def _fallback_summary_from_tool(tool_name: str | None, tool_result: dict[str, Any] | None) -> str:
@@ -72,7 +55,7 @@ async def classify_security_intent(state: AgentState, llm_client: OpenAICompatib
     text = state.get("user_input", "")
     prompt = (
         "You are a binary classifier. Determine if the user's intent is related to security testing "
-        "of a vehicle/ECU/app (e.g., security scan, vulnerability analysis, permission/cert checks). "
+        "(e.g., security scan, vulnerability analysis, permission/cert checks). "
         "Reply with only YES or NO.\n\n"
         f"User: {text}"
     )
@@ -112,195 +95,43 @@ async def memory_read_node(state: AgentState, repo: Repository) -> AgentState:
     return state
 
 
-async def parse_target_vehicle_node(state: AgentState) -> AgentState:
-    # Only accept vehicle selection via API field.
-    parsed_ip = state.get("selected_vehicle_ip")
-    if parsed_ip and not _valid_ipv4(parsed_ip):
-        parsed_ip = None
-    state["parsed_vehicle_ip"] = parsed_ip
-    append_event(state, "vehicle_ip_parsed", {"ip": parsed_ip})
-    return state
-
-
-async def resolve_vehicle_node(state: AgentState, repo: Repository) -> AgentState:
-    parsed_ip = state.get("parsed_vehicle_ip")
-    vehicles = repo.list_vehicles()
-
-    online_vehicles = [v for v in vehicles if v.status == "online"]
-    state["available_vehicles"] = [
-        {
-            "vehicle_name": v.vehicle_name,
-            "ip": v.ip,
-            "status": v.status,
-            "is_configured": v.is_configured,
-        }
-        for v in online_vehicles
-    ]
-
-    # If no explicit IP, reuse last selection for multi-turn chats.
-    vehicle = None
-    if not parsed_ip:
-        last_ip = repo.get_last_vehicle_ip(state["session_id"])
-        if last_ip:
-            vehicle = repo.get_vehicle_by_ip(last_ip)
-
-        if vehicle is None:
-            state["error_code"] = "VEHICLE_NOT_SELECTED"
-            state["error_message"] = "未检测到车机选择（请通过接口传入在线车机 IP）"
-            append_event(
-                state,
-                "vehicle_selection_required",
-                {"reason": "ip_missing", "vehicles": state["available_vehicles"]},
-            )
-            return state
-    else:
-        vehicle = repo.get_vehicle_by_ip(parsed_ip)
-
-    if not vehicle:
-        state["error_code"] = "VEHICLE_NOT_REGISTERED"
-        state["error_message"] = f"车机 IP 未注册: {parsed_ip}"
-        append_event(
-            state,
-            "vehicle_selection_required",
-            {"reason": "ip_not_registered", "ip": parsed_ip, "vehicles": state["available_vehicles"]},
-        )
-        return state
-
-    if vehicle.status != "online":
-        state["error_code"] = "VEHICLE_OFFLINE"
-        state["error_message"] = f"车机不在线: {vehicle.ip}"
-        append_event(
-            state,
-            "vehicle_selection_required",
-            {"reason": "vehicle_offline", "ip": vehicle.ip, "vehicles": state["available_vehicles"]},
-        )
-        return state
-
-    if not vehicle.is_configured or not vehicle.mcp_endpoint:
-        state["error_code"] = "VEHICLE_NOT_CONFIGURED"
-        state["error_message"] = f"车机未完成 MCP 配置: {vehicle.ip}"
-        state["selected_vehicle_ip"] = vehicle.ip
-        state["selected_vehicle_name"] = vehicle.vehicle_name
-        append_event(
-            state,
-            "vehicle_unconfigured",
-            {
-                "vehicle_name": vehicle.vehicle_name,
-                "ip": vehicle.ip,
-                "required": ["mcp_endpoint", "auth", "connectivity"],
-            },
-        )
-        return state
-
-    state["selected_vehicle_ip"] = vehicle.ip
-    state["selected_vehicle_name"] = vehicle.vehicle_name
-    state["selected_vehicle_endpoint"] = vehicle.mcp_endpoint
-    state["error_code"] = None
-    state["error_message"] = None
-    append_event(
-        state,
-        "vehicle_connected",
-        {"vehicle_name": vehicle.vehicle_name, "ip": vehicle.ip, "endpoint": vehicle.mcp_endpoint},
-    )
-    return state
-
-
-def decide_vehicle_branch(state: AgentState) -> str:
-    if state.get("error_code") == "VEHICLE_NOT_SELECTED":
-        return "vehicle_missing"
-    if state.get("error_code") == "VEHICLE_NOT_REGISTERED":
-        return "vehicle_missing"
-    if state.get("error_code") == "VEHICLE_NOT_CONFIGURED":
-        return "vehicle_unconfigured"
-    return "vehicle_ready"
-
-
-async def ask_vehicle_selection_node(state: AgentState) -> AgentState:
-    vehicles = state.get("available_vehicles") or []
-    lines = ["请先选择要连接的车机 IP。"]
-    if state.get("error_code") == "VEHICLE_NOT_REGISTERED":
-        lines.append(state.get("error_message", "指定 IP 未注册。"))
-    if vehicles:
-        lines.append("可选车机：")
-        for v in vehicles:
-            lines.append(f"- {v['vehicle_name']} ({v['ip']}) 状态={v['status']} 已配置={v['is_configured']}")
-    else:
-        lines.append("当前没有可用车机，请先在平台注册车机并完成 MCP 配置。")
-
-    lines.append("请选择要连接的车机 IP/名称。")
-    state["final_response"] = "\n".join(lines)
-    return state
-
-
-async def ask_vehicle_config_node(state: AgentState) -> AgentState:
-    ip = state.get("selected_vehicle_ip", "unknown")
-    name = state.get("selected_vehicle_name", "unknown")
-    state["final_response"] = (
-        f"车机 {name} ({ip}) 尚未完成 MCP 配置。请先完成：\n"
-        "1. 配置 mcp_endpoint\n"
-        "2. 配置认证参数\n"
-        "3. 确认网络连通性\n"
-        "配置完成后请重新发起请求。"
-    )
-    return state
-
-
-async def mcp_call_node(state: AgentState, mcp_manager: MCPClientManager) -> AgentState:
+async def skill_call_node(state: AgentState, registry: SkillRegistry) -> AgentState:
     if not state.get("security_intent"):
         state["available_tools"] = []
-        append_event(state, "reasoning_trace", {"decision": "skip_mcp_non_security_intent"})
+        append_event(state, "reasoning_trace", {"decision": "skip_skill_non_security_intent"})
         return state
 
-    endpoint = state["selected_vehicle_endpoint"]
-    client = mcp_manager.client_for_endpoint(endpoint)
     query = state["user_input"]
     try:
-        tools = await client.list_tools(endpoint)
-        state["available_tools"] = [{"name": t.name, "description": t.description, "input_schema": t.input_schema} for t in tools]
-        append_event(state, "mcp_tools_discovered", {"count": len(tools), "tools": [t.name for t in tools]})
+        tools = registry.list_tools()
+        state["available_tools"] = [{"name": t.name, "description": t.description} for t in tools]
+        append_event(state, "skills_discovered", {"count": len(tools), "tools": [t.name for t in tools]})
 
-        if not tools:
-            raise MCPError("MCP_UNAVAILABLE", "目标车机没有可用 MCP 工具")
-
-        selected_tool = None
-        lowered = query.lower()
-        for t in tools:
-            if t.name.lower() in lowered:
-                selected_tool = t
-                break
+        selected_tool = registry.pick_tool(query)
         if not selected_tool:
-            selected_tool = tools[0]
+            state["error_code"] = "SKILL_UNAVAILABLE"
+            state["error_message"] = "未发现可用本地工具"
+            append_event(state, "skill_call_failed", {"error_code": "SKILL_UNAVAILABLE", "message": "no local skills"})
+            return state
 
         state["selected_tool"] = selected_tool.name
-        append_event(
-            state,
-            "mcp_call_started",
-            {
-                "ip": state.get("selected_vehicle_ip"),
-                "tool": selected_tool.name,
-                "endpoint": endpoint,
-            },
-        )
+        append_event(state, "skill_call_started", {"tool": selected_tool.name})
 
-        result = await client.call_tool(endpoint, selected_tool.name, {"query": query})
+        # Best-effort: pass user input as generic query.
+        result = selected_tool.execute(query=query)
         state["tool_result"] = result
-        append_event(state, "mcp_call_finished", {"tool": selected_tool.name, "result_preview": str(result)[:400]})
-    except MCPError as exc:
-        state["error_code"] = exc.code
-        state["error_message"] = exc.message
-        append_event(state, "vehicle_connect_failed", {"ip": state.get("selected_vehicle_ip"), "error_code": exc.code, "message": exc.message})
-        append_event(state, "mcp_call_failed", {"error_code": exc.code, "message": exc.message})
+        append_event(state, "skill_call_finished", {"tool": selected_tool.name, "result_preview": str(result)[:400]})
+    except Exception as exc:
+        state["error_code"] = "SKILL_CALL_FAILED"
+        state["error_message"] = str(exc)
+        append_event(state, "skill_call_failed", {"error_code": "SKILL_CALL_FAILED", "message": str(exc)})
     return state
 
 
 async def reflect_node(state: AgentState, llm_client: OpenAICompatibleClient) -> AgentState:
-    if state.get("final_response"):
-        append_event(state, "reasoning_trace", {"decision": "need_user_vehicle_selection_or_configuration"})
-        return state
-
     if state.get("error_code"):
         state["final_response"] = f"工具调用失败（{state['error_code']}）：{state.get('error_message', 'unknown error')}"
-        append_event(state, "reasoning_trace", {"decision": "fast_fail_on_mcp_error"})
+        append_event(state, "reasoning_trace", {"decision": "fast_fail_on_skill_error"})
         return state
 
     system_prompt = state["system_prompt"]
@@ -330,7 +161,7 @@ async def reflect_node(state: AgentState, llm_client: OpenAICompatibleClient) ->
         append_event(state, "reasoning_trace", {"decision": "llm_summary_failed_fallback", "error": str(exc)[:300]})
 
     state["final_response"] = final
-    append_event(state, "reasoning_trace", {"decision": "mcp_result_reflected", "tool": state.get("selected_tool")})
+    append_event(state, "reasoning_trace", {"decision": "skill_result_reflected", "tool": state.get("selected_tool")})
     return state
 
 
@@ -342,13 +173,10 @@ async def memory_write_node(state: AgentState, repo: Repository) -> AgentState:
         "assistant",
         state.get("final_response", ""),
         {
-            "selected_vehicle_ip": state.get("selected_vehicle_ip"),
             "selected_tool": state.get("selected_tool"),
             "error_code": state.get("error_code"),
         },
     )
-    if state.get("selected_vehicle_ip"):
-        repo.set_last_vehicle_ip(session_id, state.get("selected_vehicle_ip"))
 
     summary = (state.get("final_response") or "")[:300]
     repo.upsert_summary(session_id, summary)

@@ -19,8 +19,6 @@ class Settings(BaseModel):
     llm_model: str = "gpt-4o-mini"
     llm_timeout_seconds: int = 30
 
-    mcp_mode: str = Field(default="hybrid", description="stdio|http|hybrid")
-    mcp_timeout_seconds: int = 30
 
     default_system_prompt_file: str = "prompts/system.md"
     default_user_prompt_file: str = "prompts/user_template.md"
@@ -44,8 +42,6 @@ class Settings(BaseModel):
             "LLM_API_KEY": "llm_api_key",
             "LLM_MODEL": "llm_model",
             "LLM_TIMEOUT_SECONDS": "llm_timeout_seconds",
-            "MCP_MODE": "mcp_mode",
-            "MCP_TIMEOUT_SECONDS": "mcp_timeout_seconds",
             "DEFAULT_SYSTEM_PROMPT_FILE": "default_system_prompt_file",
             "DEFAULT_USER_PROMPT_FILE": "default_user_prompt_file",
             "DEFAULT_TOOL_POLICY_FILE": "default_tool_policy_file",

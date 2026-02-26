@@ -13,15 +13,8 @@ class AgentState(TypedDict, total=False):
     tool_policy: str
     memory_context: str
 
-    parsed_vehicle_ip: str | None
-    selected_vehicle_ip: str | None
-    selected_vehicle_name: str | None
-    selected_vehicle_endpoint: str | None
-
     error_code: str | None
     error_message: str | None
-
-    available_vehicles: list[dict[str, Any]]
     available_tools: list[dict[str, Any]]
     selected_tool: str | None
     tool_result: dict[str, Any] | None

@@ -1,140 +1,46 @@
 from __future__ import annotations
 
-from pathlib import Path
-
 import pytest
 
-from app.db.database import Database
-from app.graph.nodes import (
-    mcp_call_node,
-    parse_target_vehicle_node,
-    resolve_vehicle_node,
-)
-from app.memory.repository import Repository
+from app.graph.nodes import skill_call_node
 
 
-class _FakeMCPClient:
-    async def list_tools(self, endpoint: str):
-        return [type("Tool", (), {"name": "apk_analyzer", "description": "", "input_schema": {}})()]
+class _FakeTool:
+    name = "apk_analyzer"
+    description = ""
 
-    async def call_tool(self, endpoint: str, tool_name: str, arguments: dict):
-        return {"ok": True, "tool": tool_name, "arguments": arguments}
-
-
-class _FakeManager:
-    def client_for_endpoint(self, endpoint: str):
-        return _FakeMCPClient()
+    def execute(self, **kwargs):
+        return {"ok": True, "arguments": kwargs}
 
 
-@pytest.fixture()
-def repo(tmp_path: Path) -> Repository:
-    db_file = tmp_path / "test.db"
-    db = Database(str(db_file))
-    db.init_schema()
-    return Repository(db)
+class _FakeRegistry:
+    def list_tools(self):
+        return [type("Info", (), {"name": "apk_analyzer", "description": ""})()]
+
+    def pick_tool(self, user_input: str):
+        return _FakeTool()
 
 
 @pytest.mark.asyncio
-async def test_valid_ip_routes_to_vehicle_and_calls_mcp(repo: Repository):
-    repo.upsert_vehicle("car-a", "10.1.1.2", "http://10.1.1.2:9000", status="online", is_configured=True)
-
+async def test_skill_call_runs_when_security_intent_true():
     state = {
         "session_id": "s1",
-        "user_input": "请连接 10.1.1.2 做安全检查",
-        "selected_vehicle_ip": "10.1.1.2",
+        "user_input": "做一次安全扫描",
+        "security_intent": True,
         "events": [],
     }
-    state = await parse_target_vehicle_node(state)
-    state = await resolve_vehicle_node(state, repo)
-
-    assert state["selected_vehicle_ip"] == "10.1.1.2"
-    assert state.get("error_code") is None
-
-    state["security_intent"] = True
-    state = await mcp_call_node(state, _FakeManager())
+    state = await skill_call_node(state, _FakeRegistry())
     assert state["tool_result"]["ok"] is True
 
 
 @pytest.mark.asyncio
-async def test_no_ip_requires_vehicle_selection(repo: Repository):
-    repo.upsert_vehicle("car-a", "10.1.1.2", "http://10.1.1.2:9000", status="online", is_configured=True)
-    state = {"session_id": "s1", "user_input": "帮我做安全检查", "events": []}
-
-    state = await parse_target_vehicle_node(state)
-    state = await resolve_vehicle_node(state, repo)
-
-    assert state["error_code"] == "VEHICLE_NOT_SELECTED"
-
-
-@pytest.mark.asyncio
-async def test_unregistered_ip_requires_selection(repo: Repository):
-    state = {"session_id": "s1", "user_input": "检查 10.8.8.8", "selected_vehicle_ip": "10.8.8.8", "events": []}
-
-    state = await parse_target_vehicle_node(state)
-    state = await resolve_vehicle_node(state, repo)
-
-    assert state["error_code"] == "VEHICLE_NOT_REGISTERED"
-
-
-@pytest.mark.asyncio
-async def test_unconfigured_vehicle_requires_setup(repo: Repository):
-    repo.upsert_vehicle("car-b", "10.2.2.3", None, status="online", is_configured=False)
-    state = {"session_id": "s1", "user_input": "连接 10.2.2.3", "selected_vehicle_ip": "10.2.2.3", "events": []}
-
-    state = await parse_target_vehicle_node(state)
-    state = await resolve_vehicle_node(state, repo)
-
-    assert state["error_code"] == "VEHICLE_NOT_CONFIGURED"
-
-
-@pytest.mark.asyncio
-async def test_reuse_last_vehicle_when_no_ip(repo: Repository):
-    repo.upsert_vehicle("car-a", "10.1.1.2", "http://10.1.1.2:9000", status="online", is_configured=True)
-    repo.set_last_vehicle_ip("s1", "10.1.1.2")
-
-    state = {"session_id": "s1", "user_input": "继续分析", "events": []}
-    state = await parse_target_vehicle_node(state)
-    state = await resolve_vehicle_node(state, repo)
-
-    assert state["selected_vehicle_ip"] == "10.1.1.2"
-
-
-@pytest.mark.asyncio
-async def test_vehicle_name_selection(repo: Repository):
-    repo.upsert_vehicle("car-a", "10.1.1.2", "http://10.1.1.2:9000", status="online", is_configured=True)
-
-    state = {"session_id": "s1", "user_input": "请连接 car-a", "events": []}
-    state = await parse_target_vehicle_node(state)
-    state = await resolve_vehicle_node(state, repo)
-
-    assert state["error_code"] == "VEHICLE_NOT_SELECTED"
-
-
-def test_session_memory_isolated(repo: Repository):
-    repo.append_message("s1", "user", "a")
-    repo.append_message("s2", "user", "b")
-
-    m1 = repo.get_recent_messages("s1")
-    m2 = repo.get_recent_messages("s2")
-
-    assert len(m1) == 1 and m1[0]["content"] == "a"
-    assert len(m2) == 1 and m2[0]["content"] == "b"
-
-
-@pytest.mark.asyncio
-async def test_skip_mcp_for_non_security_intent(repo: Repository):
-    repo.upsert_vehicle("car-a", "10.1.1.2", "http://10.1.1.2:9000", status="online", is_configured=True)
+async def test_skip_skill_for_non_security_intent():
     state = {
         "session_id": "s1",
         "user_input": "今天天气怎么样",
-        "selected_vehicle_ip": "10.1.1.2",
+        "security_intent": False,
         "events": [],
     }
-
-    state = await parse_target_vehicle_node(state)
-    state = await resolve_vehicle_node(state, repo)
-    state["security_intent"] = False
-    state = await mcp_call_node(state, _FakeManager())
-
+    state = await skill_call_node(state, _FakeRegistry())
     assert state.get("selected_tool") is None
     assert state.get("tool_result") is None
