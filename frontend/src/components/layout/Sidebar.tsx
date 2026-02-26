@@ -1,11 +1,9 @@
 import { NavLink } from 'react-router-dom';
-import { Shield, MessageSquare, List, Settings, FileText } from 'lucide-react';
+import { Shield, MessageSquare, Settings } from 'lucide-react';
 
 const Sidebar = () => {
   const navItems = [
     { name: 'Chat', icon: MessageSquare, path: '/' },
-    { name: 'Vehicles', icon: List, path: '/vehicles' },
-    { name: 'Logs', icon: FileText, path: '/logs' },
     { name: 'Settings', icon: Settings, path: '/settings' },
   ];
 

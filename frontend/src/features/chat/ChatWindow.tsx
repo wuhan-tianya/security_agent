@@ -1,6 +1,9 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react';
-import { Terminal, Cpu, AlertCircle, Play, RefreshCw, Car } from 'lucide-react';
-import { CHAT_STREAM_URL, getVehicles, type Vehicle } from '../../api';
+import { Terminal, Cpu, AlertCircle, Play } from 'lucide-react';
+import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
+import remarkBreaks from 'remark-breaks';
+import { CHAT_STREAM_URL } from '../../api';
 
 interface Message {
   id: string;
@@ -16,29 +19,9 @@ const ChatWindow = () => {
   const [input, setInput] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [sessionId] = useState(`session-${Math.random().toString(36).substring(7)}`);
-  
-  const [vehicles, setVehicles] = useState<Vehicle[]>([]);
-  const [selectedVehicleIp, setSelectedVehicleIp] = useState<string>('');
-  const [isVehiclesLoading, setIsVehiclesLoading] = useState(false);
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
-
-  const fetchVehicles = async () => {
-      setIsVehiclesLoading(true);
-      try {
-          const data = await getVehicles();
-          setVehicles(data);
-      } catch (e) {
-          console.error("Failed to fetch vehicles", e);
-      } finally {
-          setIsVehiclesLoading(false);
-      }
-  };
-
-  useEffect(() => {
-    fetchVehicles();
-  }, []);
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -70,7 +53,6 @@ const ChatWindow = () => {
           session_id: sessionId,
           user_input: userMessage.content,
           model: 'gpt-4o-mini',
-          target_vehicle_ip: selectedVehicleIp || null
         }),
       });
 
@@ -229,39 +211,12 @@ const ChatWindow = () => {
               <Terminal className="w-5 h-5" />
               <span className="font-bold tracking-wider">COMMAND_CENTER</span>
           </div>
-          
-          <div className="flex items-center space-x-3">
-              <div className="flex items-center bg-black border border-gray-700 rounded px-2 py-1">
-                  <Car className="w-4 h-4 text-gray-400 mr-2" />
-                  <select 
-                      value={selectedVehicleIp}
-                      onChange={(e) => setSelectedVehicleIp(e.target.value)}
-                      className="bg-transparent text-sm text-security-text focus:outline-none min-w-[150px] appearance-none cursor-pointer"
-                  >
-                      <option value="">-- No Vehicle Selected --</option>
-                      {vehicles.map(v => (
-                          <option key={v.ip} value={v.ip}>
-                              {v.vehicle_name} ({v.ip}) {v.status === 'online' ? '●' : '○'}
-                          </option>
-                      ))}
-                  </select>
-              </div>
-              
-              <button 
-                  onClick={fetchVehicles}
-                  disabled={isVehiclesLoading}
-                  className="p-1.5 hover:bg-gray-800 rounded text-gray-400 hover:text-white transition-colors"
-                  title="Refresh Vehicles"
-              >
-                  <RefreshCw className={`w-4 h-4 ${isVehiclesLoading ? 'animate-spin' : ''}`} />
-              </button>
-          </div>
       </div>
 
       <div className="flex-1 overflow-y-auto p-4 space-y-4 scrollbar-thin scrollbar-thumb-security-dim scrollbar-track-transparent pb-20">
         {messages.map((msg, idx) => (
           <div key={idx} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'} animate-in fade-in slide-in-from-bottom-2 duration-300`}>
-            <div className={`max-w-[85%] rounded p-3 relative group ${
+            <div className={`max-w-[85%] rounded p-3 relative group overflow-hidden ${
               msg.role === 'user' 
                 ? 'bg-security-primary/10 border border-security-primary/30 text-security-text' 
                 : msg.role === 'system'
@@ -278,8 +233,10 @@ const ChatWindow = () => {
                  <span className="ml-auto">{msg.timestamp}</span>
               </div>
               
-              <div className="whitespace-pre-wrap font-mono text-sm leading-relaxed">
-                {msg.content}
+              <div className="font-mono text-sm leading-relaxed markdown-content break-words">
+                <ReactMarkdown remarkPlugins={[remarkGfm, remarkBreaks]}>
+                    {msg.content}
+                </ReactMarkdown>
               </div>
               
               {/* Tool Metadata Visualization (if any) */}
