@@ -3,6 +3,7 @@ from __future__ import annotations
 from typing import Any, AsyncIterator
 
 import httpx
+from loguru import logger
 
 from app.core.config import get_settings
 
@@ -49,30 +50,38 @@ class OpenAICompatibleClient:
         headers = {"Authorization": f"Bearer {self.settings.llm_api_key}", "User-Agent": "KimiCLI/1.6"}
 
         async with httpx.AsyncClient(timeout=self.settings.llm_timeout_seconds, trust_env=False) as client:
-            async with client.stream(
-                "POST",
-                f"{self.settings.llm_base_url.rstrip('/')}/chat/completions",
-                json=payload,
-                headers=headers,
-            ) as resp:
-                resp.raise_for_status()
-                async for line in resp.aiter_lines():
-                    if not line:
-                        continue
-                    if not line.startswith("data: "):
-                        continue
-                    data = line[6:].strip()
-                    if data == "[DONE]":
-                        break
-                    try:
-                        import json as _json
-                        chunk = _json.loads(data)
-                    except Exception:
-                        continue
-                    delta = chunk.get("choices", [{}])[0].get("delta", {})
-                    content = delta.get("content")
-                    if content:
-                        yield content
+            try:
+                async with client.stream(
+                    "POST",
+                    f"{self.settings.llm_base_url.rstrip('/')}/chat/completions",
+                    json=payload,
+                    headers=headers,
+                ) as resp:
+                    resp.raise_for_status()
+                    async for line in resp.aiter_lines():
+                        if not line:
+                            continue
+                        stripped = line.strip()
+                        if not stripped.startswith("data:"):
+                            continue
+                        data = stripped.split("data:", 1)[1].strip()
+                        if data == "[DONE]":
+                            break
+                        try:
+                            import json as _json
+                            chunk = _json.loads(data)
+                        except Exception:
+                            logger.bind(event="llm_stream_parse_failed").warning("stream_line={}", stripped[:500])
+                            continue
+                        delta = (chunk.get("choices") or [{}])[0].get("delta", {})
+                        content = delta.get("content")
+                        if content:
+                            yield content
+            except httpx.HTTPStatusError as exc:
+                status = exc.response.status_code if exc.response is not None else "unknown"
+                body = exc.response.text[:500] if exc.response is not None else ""
+                logger.bind(event="llm_http_error_stream").error("status={} body={}", status, body)
+                raise RuntimeError(f"LLM HTTP {status}: {body}") from exc
 
     async def _chat_completion_raw(
         self,
@@ -109,9 +118,13 @@ class OpenAICompatibleClient:
         except httpx.HTTPStatusError as exc:
             status = exc.response.status_code if exc.response is not None else "unknown"
             body = exc.response.text[:500] if exc.response is not None else ""
+            logger.bind(event="llm_http_error").error("status={} body={}", status, body)
             raise RuntimeError(f"LLM HTTP {status}: {body}") from exc
 
-        message = data["choices"][0]["message"]
+        choices = data.get("choices") or []
+        if not choices:
+            return {"content": "", "tool_calls": []}
+        message = choices[0].get("message") or {}
         return {
             "content": message.get("content") or "",
             "tool_calls": message.get("tool_calls") or [],

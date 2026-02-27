@@ -165,17 +165,34 @@ async def skill_call_node(
             tool_choice="auto",
             model=state.get("model"),
         )
-        tool_calls = route_resp.get("tool_calls") or []
+        raw_tool_calls = route_resp.get("tool_calls") or []
 
-        if not tool_calls:
+        if not raw_tool_calls:
             append_event(state, "reasoning_trace", {"decision": "no_tool_selected"})
             return state
+
+        tool_calls: list[dict[str, Any]] = []
+        for idx, call in enumerate(raw_tool_calls):
+            call_id = call.get("id") or f"call_{idx}"
+            fn = call.get("function") or {}
+            tool_calls.append(
+                {
+                    "id": call_id,
+                    "type": call.get("type") or "function",
+                    "function": {
+                        "name": fn.get("name") or call.get("name"),
+                        "arguments": fn.get("arguments") or "{}",
+                    },
+                }
+            )
 
         results: list[dict[str, Any]] = []
         selected_tools: list[str] = []
         for call in tool_calls:
+            if call.get("type") and call.get("type") != "function":
+                continue
             fn = (call.get("function") or {})
-            tool_name = fn.get("name")
+            tool_name = fn.get("name") or call.get("name")
             if not tool_name:
                 continue
             tool = registry.get_tool(tool_name)
@@ -186,6 +203,11 @@ async def skill_call_node(
             try:
                 args = json.loads(args_raw) if isinstance(args_raw, str) else dict(args_raw)
             except Exception:
+                logger.bind(session_id=state.get("session_id")).warning(
+                    "tool_args_parse_failed tool={} args_raw={}",
+                    tool_name,
+                    str(args_raw)[:300],
+                )
                 args = {}
             if "query" not in args:
                 args["query"] = query
@@ -195,15 +217,16 @@ async def skill_call_node(
             append_event(state, "mcp_call_started", {"tool": tool_name, "arguments": args})
 
             result = tool.execute(**args)
-            result_preview = str(result)[:400]
             append_event(state, "skill_call_finished", {"tool": tool_name, "result": result})
             append_event(state, "mcp_call_finished", {"tool": tool_name, "result": result})
-            results.append({"tool": tool_name, "result": result})
+            results.append({"tool": tool_name, "tool_call_id": call.get("id"), "result": result})
 
         state["selected_tools"] = selected_tools
         state["selected_tool"] = selected_tools[0] if selected_tools else None
+        state["tool_calls"] = tool_calls
         state["tool_result"] = results
     except Exception as exc:
+        logger.bind(session_id=state.get("session_id")).exception("skill_call_failed: {}", str(exc))
         state["error_code"] = "SKILL_CALL_FAILED"
         state["error_message"] = str(exc)
         append_event(state, "skill_call_failed", {"error_code": "SKILL_CALL_FAILED", "message": str(exc)})
@@ -222,23 +245,36 @@ async def reflect_node(state: AgentState, llm_client: OpenAICompatibleClient) ->
     tool_policy = state["tool_policy"]
 
     tool_result = state.get("tool_result")
-    tool_result_text = ""
-    if tool_result is not None:
+    tool_calls = state.get("tool_calls") or []
+
+    messages: list[dict[str, Any]] = [
+        {"role": "system", "content": system_prompt + "\n" + tool_policy},
+        {"role": "user", "content": user_prompt},
+    ]
+
+    if tool_calls and isinstance(tool_result, list):
+        messages.append({"role": "assistant", "content": "", "tool_calls": tool_calls})
+        for item in tool_result:
+            tool_call_id = item.get("tool_call_id") or ""
+            result_payload = item.get("result")
+            try:
+                tool_content = json.dumps(result_payload, ensure_ascii=False)
+            except Exception:
+                tool_content = str(result_payload)
+            messages.append(
+                {
+                    "role": "tool",
+                    "tool_call_id": tool_call_id,
+                    "content": tool_content,
+                }
+            )
+    elif tool_result is not None:
+        tool_result_text = ""
         try:
             tool_result_text = json.dumps(tool_result, ensure_ascii=False)
         except Exception:
             tool_result_text = str(tool_result)
-    messages = [
-        {"role": "system", "content": system_prompt + "\n" + tool_policy},
-        {
-            "role": "user",
-            "content": (
-                f"{user_prompt}\n\n工具结果:\n{tool_result_text}\n\n请给出简洁的安全分析结论。"
-                if tool_result is not None
-                else user_prompt
-            ),
-        },
-    ]
+        messages[-1]["content"] = f"{user_prompt}\n\n工具结果:\n{tool_result_text}\n\n请给出简洁的安全分析结论。"
     try:
         logger.bind(session_id=state.get("session_id")).info("llm_messages={}", messages)
     except Exception:
