@@ -1,9 +1,9 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react';
-import { Terminal, Cpu, AlertCircle, Play } from 'lucide-react';
+import { Terminal, Cpu, AlertCircle, Play, Plus, MessageSquare } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import remarkBreaks from 'remark-breaks';
-import { CHAT_STREAM_URL } from '../../api';
+import { CHAT_STREAM_URL, getSessions, getSessionMemory, type Session } from '../../api';
 
 interface Message {
   id: string;
@@ -18,10 +18,90 @@ const ChatWindow = () => {
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState('');
   const [isLoading, setIsLoading] = useState(false);
-  const [sessionId] = useState(`session-${Math.random().toString(36).substring(7)}`);
+  
+  // Session State
+  const [sessions, setSessions] = useState<Session[]>([]);
+  const [sessionId, setSessionId] = useState<string>(() => {
+      const stored = localStorage.getItem('current_session_id');
+      return stored || `session-${Math.random().toString(36).substring(7)}`;
+  });
+  const [isSessionsLoading, setIsSessionsLoading] = useState(false);
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+
+  // Fetch sessions on mount
+  useEffect(() => {
+    fetchSessions();
+  }, []);
+
+  // Load session memory when ID changes
+  useEffect(() => {
+    if (sessionId) {
+        localStorage.setItem('current_session_id', sessionId);
+        loadSessionHistory(sessionId);
+    }
+  }, [sessionId]);
+
+  const fetchSessions = async () => {
+      setIsSessionsLoading(true);
+      try {
+          const data = await getSessions();
+          setSessions(data);
+      } catch (e) {
+          console.error("Failed to fetch sessions", e);
+      } finally {
+          setIsSessionsLoading(false);
+      }
+  };
+
+  const loadSessionHistory = async (id: string) => {
+      // If it's a new random session that doesn't exist in backend yet, don't try to fetch
+      const exists = sessions.find(s => s.session_id === id);
+      if (!exists && sessions.length > 0 && !id.startsWith('session-')) {
+           // It might be a new valid ID, but let's be safe. 
+           // Actually, if user selects from dropdown, it exists. 
+           // If we just created it locally, it doesn't exist yet.
+      }
+
+      try {
+          const memory = await getSessionMemory(id);
+          if (memory && memory.recent_messages) {
+              const history: Message[] = memory.recent_messages.map((msg: any, index: number) => {
+                  let metadata = undefined;
+                  if (msg.tool_json) {
+                      try {
+                          metadata = JSON.parse(msg.tool_json);
+                      } catch (e) {
+                          console.warn('Failed to parse tool_json', e);
+                          metadata = { raw: msg.tool_json, error: 'JSON parse error' };
+                      }
+                  }
+                  return {
+                      id: `hist-${index}-${Date.now()}`,
+                      role: msg.role,
+                      content: msg.content,
+                      timestamp: msg.ts || new Date().toLocaleTimeString(),
+                      type: 'text', // Simple mapping for now
+                      metadata
+                  };
+              });
+              setMessages(history);
+          } else {
+              setMessages([]);
+          }
+      } catch (e) {
+          // Likely session doesn't exist yet (new session), so empty history
+          setMessages([]);
+      }
+  };
+
+  const createNewSession = () => {
+      const newId = `session-${Math.random().toString(36).substring(7)}`;
+      setSessionId(newId);
+      setMessages([]);
+      inputRef.current?.focus();
+  };
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -42,6 +122,15 @@ const ChatWindow = () => {
     setMessages(prev => [...prev, userMessage]);
     setInput('');
     setIsLoading(true);
+
+    // Optimistically add to session list if it's new
+    if (!sessions.find(s => s.session_id === sessionId)) {
+        setSessions(prev => [{ 
+            session_id: sessionId, 
+            created_at: new Date().toISOString(), 
+            updated_at: new Date().toISOString() 
+        }, ...prev]);
+    }
 
     try {
       const response = await fetch(CHAT_STREAM_URL, {
@@ -98,6 +187,8 @@ const ChatWindow = () => {
           }
         }
       }
+      // Refresh session list after chat (to update timestamps or add new)
+      fetchSessions();
     } catch (error) {
       console.error('Chat error:', error);
       setMessages(prev => [...prev, {
@@ -178,6 +269,36 @@ const ChatWindow = () => {
                       metadata: event
                   }];
 
+              case 'reasoning_trace':
+                  // Format reasoning trace for display
+                  let traceContent = `Thinking: ${event.decision}`;
+                  if (event.decision === 'intent_classified') {
+                      traceContent = `Intent Analysis: ${event.security_intent ? 'Security Related' : 'General Query'}`;
+                  } else if (event.decision === 'skill_result_reflected') {
+                      traceContent = `Reflecting on tool output...`;
+                  } else if (event.decision === 'no_tool_selected') {
+                       traceContent = `No suitable tool found.`;
+                  }
+                  
+                  return [...prev, {
+                      id: `trace-${Date.now()}`,
+                      role: 'system',
+                      content: traceContent,
+                      timestamp,
+                      type: 'info',
+                      metadata: event
+                  }];
+
+              case 'skills_discovered':
+                  return [...prev, {
+                      id: `skills-${Date.now()}`,
+                      role: 'system',
+                      content: `Discovered ${event.count} available tools: ${event.tools.join(', ')}`,
+                      timestamp,
+                      type: 'info',
+                      metadata: event
+                  }];
+
               case 'run_error':
                    return [...prev, {
                       id: `err-${Date.now()}`,
@@ -187,7 +308,21 @@ const ChatWindow = () => {
                       type: 'error',
                       metadata: event
                   }];
+
+              case 'memory_read':
+                  return [...prev, {
+                      id: `mem-${Date.now()}`,
+                      role: 'system',
+                      content: `Context loaded: ${event.message_count} messages${event.has_summary ? ' + summary' : ''}`,
+                      timestamp,
+                      type: 'info',
+                      metadata: event
+                  }];
               
+              case 'memory_write':
+                  // Optionally show save confirmation, or skip
+                  return prev;
+
               case 'run_finished':
                    return [...prev, {
                       id: `fin-${Date.now()}`,
@@ -205,11 +340,41 @@ const ChatWindow = () => {
 
   return (
     <div className="flex flex-col h-full max-w-5xl mx-auto w-full">
-      {/* Vehicle Selection Header */}
+      {/* Session Header */}
       <div className="flex items-center justify-between p-4 border-b border-gray-800 bg-security-surface/50">
           <div className="flex items-center space-x-2 text-security-primary">
               <Terminal className="w-5 h-5" />
               <span className="font-bold tracking-wider">COMMAND_CENTER</span>
+          </div>
+
+          <div className="flex items-center space-x-3">
+              <div className="flex items-center bg-black border border-gray-700 rounded px-2 py-1">
+                  <MessageSquare className="w-4 h-4 text-gray-400 mr-2" />
+                  <select 
+                      value={sessionId}
+                      onChange={(e) => setSessionId(e.target.value)}
+                      disabled={isSessionsLoading}
+                      className="bg-transparent text-sm text-security-text focus:outline-none min-w-[200px] max-w-[300px] appearance-none cursor-pointer disabled:opacity-50"
+                  >
+                      {/* Always show current if not in list yet */}
+                      {!sessions.find(s => s.session_id === sessionId) && (
+                          <option value={sessionId}>{sessionId} (New)</option>
+                      )}
+                      {sessions.map(s => (
+                          <option key={s.session_id} value={s.session_id}>
+                              {s.session_id}
+                          </option>
+                      ))}
+                  </select>
+              </div>
+              
+              <button 
+                  onClick={createNewSession}
+                  className="p-1.5 hover:bg-gray-800 rounded text-security-primary hover:text-white transition-colors"
+                  title="New Session"
+              >
+                  <Plus className="w-4 h-4" />
+              </button>
           </div>
       </div>
 
@@ -239,10 +404,29 @@ const ChatWindow = () => {
                 </ReactMarkdown>
               </div>
               
-              {/* Tool Metadata Visualization (if any) */}
-              {msg.metadata && msg.type === 'tool_result' && (
+              {/* Tool Call Arguments */}
+              {msg.type === 'tool_call' && msg.metadata?.arguments && (
                   <div className="mt-2 p-2 bg-black/30 rounded border border-gray-800 text-xs overflow-x-auto">
-                      <pre>{JSON.stringify(msg.metadata.result || msg.metadata, null, 2)}</pre>
+                      <div className="text-gray-500 mb-1 font-bold">INPUT:</div>
+                      <pre className="text-security-primary">{JSON.stringify(msg.metadata.arguments, null, 2)}</pre>
+                  </div>
+              )}
+              
+              {/* Tool Result Output */}
+              {msg.type === 'tool_result' && (
+                  <div className="mt-2">
+                      <details className="group">
+                          <summary className="cursor-pointer text-xs text-gray-500 hover:text-security-primary transition-colors flex items-center select-none">
+                              <span>▶ SHOW_OUTPUT</span>
+                          </summary>
+                          <div className="mt-2 p-2 bg-black/30 rounded border border-gray-800 text-xs overflow-x-auto max-h-96">
+                              <pre className="text-gray-300">{
+                                  typeof (msg.metadata?.result ?? msg.metadata) === 'string' 
+                                      ? (msg.metadata?.result ?? msg.metadata)
+                                      : JSON.stringify(msg.metadata?.result ?? msg.metadata, null, 2)
+                              }</pre>
+                          </div>
+                      </details>
                   </div>
               )}
             </div>

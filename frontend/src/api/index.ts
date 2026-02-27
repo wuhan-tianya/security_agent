@@ -55,6 +55,17 @@ export const getTools = async (ip?: string) => {
   return response.data.tools as Tool[];
 };
 
+export interface Session {
+  session_id: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export const getSessions = async () => {
+  const response = await api.get('/v1/sessions');
+  return response.data.sessions as Session[];
+};
+
 export const getSessionMemory = async (sessionId: string) => {
   const response = await api.get(`/v1/sessions/${sessionId}/memory`);
   return response.data as SessionMemory;
