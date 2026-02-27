@@ -7,8 +7,7 @@ from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from loguru import logger
 
-from app.api.routes_chat import router as chat_router
-from app.api.routes_tools import router as tools_router
+from app.api.v1 import router as v1_router
 from app.core.config import get_settings
 from app.db.database import Database
 from app.memory.repository import Repository
@@ -68,5 +67,4 @@ def healthz():
     return {"ok": True}
 
 
-app.include_router(chat_router)
-app.include_router(tools_router)
+app.include_router(v1_router)

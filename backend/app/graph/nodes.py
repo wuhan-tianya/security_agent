@@ -191,13 +191,13 @@ async def skill_call_node(
                 args["query"] = query
 
             selected_tools.append(tool_name)
-            append_event(state, "skill_call_started", {"tool": tool_name})
-            append_event(state, "mcp_call_started", {"tool": tool_name})
+            append_event(state, "skill_call_started", {"tool": tool_name, "arguments": args})
+            append_event(state, "mcp_call_started", {"tool": tool_name, "arguments": args})
 
             result = tool.execute(**args)
             result_preview = str(result)[:400]
-            append_event(state, "skill_call_finished", {"tool": tool_name, "result_preview": result_preview})
-            append_event(state, "mcp_call_finished", {"tool": tool_name, "result_preview": result_preview})
+            append_event(state, "skill_call_finished", {"tool": tool_name, "result": result})
+            append_event(state, "mcp_call_finished", {"tool": tool_name, "result": result})
             results.append({"tool": tool_name, "result": result})
 
         state["selected_tools"] = selected_tools

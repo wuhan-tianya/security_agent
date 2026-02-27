@@ -2,29 +2,16 @@ from __future__ import annotations
 
 from fastapi import APIRouter, Depends
 
+from app.api.deps import get_repo
 from app.memory.repository import Repository
-from app.skills.registry import SkillRegistry
+
+router = APIRouter(tags=["sessions"])
 
 
-router = APIRouter(prefix="/v1", tags=["ops"])
-
-
-def get_repo() -> Repository:
-    from app.main import app
-
-    return app.state.repo
-
-
-def get_registry() -> SkillRegistry:
-    from app.main import app
-
-    return app.state.agent_service.registry
-
-
-@router.get("/tools")
-async def list_tools(registry: SkillRegistry = Depends(get_registry)):
-    tools = registry.list_tools()
-    return {"tools": [{"name": t.name, "description": t.description} for t in tools]}
+@router.get("/sessions")
+async def list_sessions(repo: Repository = Depends(get_repo)):
+    sessions = repo.list_sessions()
+    return {"sessions": sessions}
 
 
 @router.get("/sessions/{session_id}/memory")

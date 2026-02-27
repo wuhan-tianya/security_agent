@@ -76,3 +76,16 @@ class Repository:
             if not row:
                 return None
             return row["summary"]
+
+    def list_sessions(self, limit: int = 50) -> list[dict[str, Any]]:
+        with self.db.connection() as conn:
+            rows = conn.execute(
+                """
+                SELECT session_id, created_at, updated_at
+                FROM sessions
+                ORDER BY updated_at DESC
+                LIMIT ?
+                """,
+                (limit,),
+            ).fetchall()
+        return [dict(r) for r in rows]

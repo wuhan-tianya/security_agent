@@ -17,6 +17,7 @@
 ### 3.1 Agent 主服务
 - FastAPI + LangGraph + SQLite memory + SSE。
 - 负责会话、提示词、推理编排、工具调度、事件可观测。
+- SSE 输出为模型真实流式返回，前端无需再分词模拟。
 
 ### 3.2 工具层
 - 复用 `skills/scripts` 里的工具实现。
@@ -85,6 +86,21 @@
 ### 7.3 会话记忆查询
 - `GET /v1/sessions/{session_id}/memory`
 
+### 7.4 会话列表查询
+- `GET /v1/sessions`
+- 响应示例：
+```json
+{
+  "sessions": [
+    {
+      "session_id": "session-xyz",
+      "created_at": "2026-02-27T10:00:00",
+      "updated_at": "2026-02-27T10:05:00"
+    }
+  ]
+}
+```
+
 ---
 
 ## 8. 配置（JSON）
@@ -106,9 +122,11 @@
 ## 9. 改动记录
 
 ### 2026-02-27
+- 新增 `/v1/sessions` 接口，支持获取历史会话列表。
 - `skill_call_node` 增发 `mcp_call_*` 事件用于前端工具调用展示兼容。
 - 记录发送给模型的完整 `messages` 到日志，便于排查提示词。
 - 工具选择改为模型路由（OpenAI tools/tool_choice），支持多工具调用。
+- 与大模型的交互改为流式输出，同时 SSE 直传模型流式 token。
 
 ### 2026-02-26
 - 移除车机连接/引导与 MCP 调用链路。

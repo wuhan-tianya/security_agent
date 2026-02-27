@@ -3,17 +3,12 @@ from __future__ import annotations
 from fastapi import APIRouter, Depends
 from fastapi.responses import StreamingResponse
 
-from app.api.schemas import ChatStreamRequest
+from app.api.deps import get_agent_service
+from app.api.v1.schemas import ChatStreamRequest
 from app.services.agent_service import AgentService
 
 
-router = APIRouter(prefix="/v1", tags=["chat"])
-
-
-def get_agent_service() -> AgentService:
-    from app.main import app
-
-    return app.state.agent_service
+router = APIRouter(tags=["chat"])
 
 
 @router.post("/chat/stream")

@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, AsyncIterator
 
 import httpx
 
@@ -29,6 +29,50 @@ class OpenAICompatibleClient:
             tool_choice=tool_choice,
         )
         return result
+
+    async def stream_chat_completion(
+        self,
+        messages: list[dict[str, str]],
+        model: str | None = None,
+    ) -> AsyncIterator[str]:
+        model_name = model or self.settings.llm_model
+        if not self.settings.llm_api_key:
+            yield "模型未配置 API Key，已返回基于规则的结果。"
+            return
+
+        payload: dict[str, Any] = {
+            "model": model_name,
+            "messages": messages,
+            "temperature": 0,
+            "stream": True,
+        }
+        headers = {"Authorization": f"Bearer {self.settings.llm_api_key}", "User-Agent": "KimiCLI/1.6"}
+
+        async with httpx.AsyncClient(timeout=self.settings.llm_timeout_seconds, trust_env=False) as client:
+            async with client.stream(
+                "POST",
+                f"{self.settings.llm_base_url.rstrip('/')}/chat/completions",
+                json=payload,
+                headers=headers,
+            ) as resp:
+                resp.raise_for_status()
+                async for line in resp.aiter_lines():
+                    if not line:
+                        continue
+                    if not line.startswith("data: "):
+                        continue
+                    data = line[6:].strip()
+                    if data == "[DONE]":
+                        break
+                    try:
+                        import json as _json
+                        chunk = _json.loads(data)
+                    except Exception:
+                        continue
+                    delta = chunk.get("choices", [{}])[0].get("delta", {})
+                    content = delta.get("content")
+                    if content:
+                        yield content
 
     async def _chat_completion_raw(
         self,
