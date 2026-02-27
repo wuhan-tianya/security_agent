@@ -12,15 +12,44 @@ class OpenAICompatibleClient:
         self.settings = get_settings()
 
     async def chat_completion(self, messages: list[dict[str, str]], model: str | None = None) -> str:
+        result = await self._chat_completion_raw(messages=messages, model=model)
+        return result["content"]
+
+    async def chat_completion_with_tools(
+        self,
+        messages: list[dict[str, str]],
+        tools: list[dict[str, Any]],
+        tool_choice: str | dict[str, Any] | None = None,
+        model: str | None = None,
+    ) -> dict[str, Any]:
+        result = await self._chat_completion_raw(
+            messages=messages,
+            model=model,
+            tools=tools,
+            tool_choice=tool_choice,
+        )
+        return result
+
+    async def _chat_completion_raw(
+        self,
+        messages: list[dict[str, str]],
+        model: str | None = None,
+        tools: list[dict[str, Any]] | None = None,
+        tool_choice: str | dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
         model_name = model or self.settings.llm_model
         if not self.settings.llm_api_key:
-            return "模型未配置 API Key，已返回基于规则的结果。"
+            return {"content": "模型未配置 API Key，已返回基于规则的结果。", "tool_calls": []}
 
         payload: dict[str, Any] = {
             "model": model_name,
             "messages": messages,
             "temperature": 0,
         }
+        if tools is not None:
+            payload["tools"] = tools
+        if tool_choice is not None:
+            payload["tool_choice"] = tool_choice
         headers = {"Authorization": f"Bearer {self.settings.llm_api_key}", "User-Agent": "KimiCLI/1.6"}
 
         try:
@@ -38,4 +67,8 @@ class OpenAICompatibleClient:
             body = exc.response.text[:500] if exc.response is not None else ""
             raise RuntimeError(f"LLM HTTP {status}: {body}") from exc
 
-        return data["choices"][0]["message"]["content"]
+        message = data["choices"][0]["message"]
+        return {
+            "content": message.get("content") or "",
+            "tool_calls": message.get("tool_calls") or [],
+        }

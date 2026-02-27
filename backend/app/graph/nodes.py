@@ -1,6 +1,9 @@
 from __future__ import annotations
 
+import json
 from typing import Any
+
+from loguru import logger
 
 from app.graph.events import append_event
 from app.graph.state import AgentState
@@ -11,9 +14,20 @@ from app.prompts.loader import PromptLoader
 from app.prompts.renderer import render_user_prompt
 
 
-def _fallback_summary_from_tool(tool_name: str | None, tool_result: dict[str, Any] | None) -> str:
+def _fallback_summary_from_tool(
+    tool_name: str | None,
+    tool_result: dict[str, Any] | list[dict[str, Any]] | None,
+) -> str:
     if not tool_result:
         return "工具调用已完成，但没有返回可用结果。"
+
+    if isinstance(tool_result, list):
+        snippets = []
+        for item in tool_result[:5]:
+            tname = item.get("tool") if isinstance(item, dict) else None
+            result = item.get("result") if isinstance(item, dict) else None
+            snippets.append(_fallback_summary_from_tool(tname, result))
+        return "\n\n".join(snippets)
 
     success = bool(tool_result.get("success"))
     data = tool_result.get("data", {})
@@ -95,7 +109,11 @@ async def memory_read_node(state: AgentState, repo: Repository) -> AgentState:
     return state
 
 
-async def skill_call_node(state: AgentState, registry: SkillRegistry) -> AgentState:
+async def skill_call_node(
+    state: AgentState,
+    registry: SkillRegistry,
+    llm_client: OpenAICompatibleClient,
+) -> AgentState:
     if not state.get("security_intent"):
         state["available_tools"] = []
         append_event(state, "reasoning_trace", {"decision": "skip_skill_non_security_intent"})
@@ -107,24 +125,89 @@ async def skill_call_node(state: AgentState, registry: SkillRegistry) -> AgentSt
         state["available_tools"] = [{"name": t.name, "description": t.description} for t in tools]
         append_event(state, "skills_discovered", {"count": len(tools), "tools": [t.name for t in tools]})
 
-        selected_tool = registry.pick_tool(query)
-        if not selected_tool:
+        if not tools:
             state["error_code"] = "SKILL_UNAVAILABLE"
             state["error_message"] = "未发现可用本地工具"
             append_event(state, "skill_call_failed", {"error_code": "SKILL_UNAVAILABLE", "message": "no local skills"})
+            append_event(state, "mcp_call_failed", {"error_code": "SKILL_UNAVAILABLE", "message": "no local skills"})
             return state
 
-        state["selected_tool"] = selected_tool.name
-        append_event(state, "skill_call_started", {"tool": selected_tool.name})
+        # Use the model to decide which tools to call.
+        tool_defs: list[dict[str, Any]] = []
+        for t in tools:
+            tool_defs.append(
+                {
+                    "type": "function",
+                    "function": {
+                        "name": t.name,
+                        "description": t.description,
+                        "parameters": {
+                            "type": "object",
+                            "properties": {
+                                "query": {
+                                    "type": "string",
+                                    "description": "User request or query to analyze.",
+                                }
+                            },
+                            "required": ["query"],
+                        },
+                    },
+                }
+            )
 
-        # Best-effort: pass user input as generic query.
-        result = selected_tool.execute(query=query)
-        state["tool_result"] = result
-        append_event(state, "skill_call_finished", {"tool": selected_tool.name, "result_preview": str(result)[:400]})
+        route_messages = [
+            {"role": "system", "content": "You are a tool router. Select tools to call based on the user request."},
+            {"role": "user", "content": query},
+        ]
+        route_resp = await llm_client.chat_completion_with_tools(
+            route_messages,
+            tools=tool_defs,
+            tool_choice="auto",
+            model=state.get("model"),
+        )
+        tool_calls = route_resp.get("tool_calls") or []
+
+        if not tool_calls:
+            append_event(state, "reasoning_trace", {"decision": "no_tool_selected"})
+            return state
+
+        results: list[dict[str, Any]] = []
+        selected_tools: list[str] = []
+        for call in tool_calls:
+            fn = (call.get("function") or {})
+            tool_name = fn.get("name")
+            if not tool_name:
+                continue
+            tool = registry.get_tool(tool_name)
+            if not tool:
+                continue
+
+            args_raw = fn.get("arguments") or "{}"
+            try:
+                args = json.loads(args_raw) if isinstance(args_raw, str) else dict(args_raw)
+            except Exception:
+                args = {}
+            if "query" not in args:
+                args["query"] = query
+
+            selected_tools.append(tool_name)
+            append_event(state, "skill_call_started", {"tool": tool_name})
+            append_event(state, "mcp_call_started", {"tool": tool_name})
+
+            result = tool.execute(**args)
+            result_preview = str(result)[:400]
+            append_event(state, "skill_call_finished", {"tool": tool_name, "result_preview": result_preview})
+            append_event(state, "mcp_call_finished", {"tool": tool_name, "result_preview": result_preview})
+            results.append({"tool": tool_name, "result": result})
+
+        state["selected_tools"] = selected_tools
+        state["selected_tool"] = selected_tools[0] if selected_tools else None
+        state["tool_result"] = results
     except Exception as exc:
         state["error_code"] = "SKILL_CALL_FAILED"
         state["error_message"] = str(exc)
         append_event(state, "skill_call_failed", {"error_code": "SKILL_CALL_FAILED", "message": str(exc)})
+        append_event(state, "mcp_call_failed", {"error_code": "SKILL_CALL_FAILED", "message": str(exc)})
     return state
 
 
@@ -139,7 +222,12 @@ async def reflect_node(state: AgentState, llm_client: OpenAICompatibleClient) ->
     tool_policy = state["tool_policy"]
 
     tool_result = state.get("tool_result")
-    tool_result_text = str(tool_result) if tool_result is not None else ""
+    tool_result_text = ""
+    if tool_result is not None:
+        try:
+            tool_result_text = json.dumps(tool_result, ensure_ascii=False)
+        except Exception:
+            tool_result_text = str(tool_result)
     messages = [
         {"role": "system", "content": system_prompt + "\n" + tool_policy},
         {
@@ -151,6 +239,10 @@ async def reflect_node(state: AgentState, llm_client: OpenAICompatibleClient) ->
             ),
         },
     ]
+    try:
+        logger.bind(session_id=state.get("session_id")).info("llm_messages={}", messages)
+    except Exception:
+        pass
 
     try:
         final = await llm_client.chat_completion(messages, model=state.get("model"))
@@ -174,6 +266,7 @@ async def memory_write_node(state: AgentState, repo: Repository) -> AgentState:
         state.get("final_response", ""),
         {
             "selected_tool": state.get("selected_tool"),
+            "selected_tools": state.get("selected_tools"),
             "error_code": state.get("error_code"),
         },
     )

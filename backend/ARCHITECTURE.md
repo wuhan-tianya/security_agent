@@ -21,6 +21,7 @@
 ### 3.2 工具层
 - 复用 `skills/scripts` 里的工具实现。
 - 工具统一入口：`execute(**kwargs)`。
+- 工具选择由模型基于工具描述做路由（支持多工具调用）。
 
 ### 3.3 调用流程
 1. `classify_intent_node` 判定是否为安全测试意图。
@@ -41,6 +42,9 @@
 - `skill_call_started`
 - `skill_call_finished`
 - `skill_call_failed`
+- `mcp_call_started`（前端展示兼容事件名）
+- `mcp_call_finished`（前端展示兼容事件名）
+- `mcp_call_failed`（前端展示兼容事件名）
 - `llm_response`（模型输出摘要）
 
 ---
@@ -100,6 +104,11 @@
 ---
 
 ## 9. 改动记录
+
+### 2026-02-27
+- `skill_call_node` 增发 `mcp_call_*` 事件用于前端工具调用展示兼容。
+- 记录发送给模型的完整 `messages` 到日志，便于排查提示词。
+- 工具选择改为模型路由（OpenAI tools/tool_choice），支持多工具调用。
 
 ### 2026-02-26
 - 移除车机连接/引导与 MCP 调用链路。

@@ -16,8 +16,9 @@ class AgentState(TypedDict, total=False):
     error_code: str | None
     error_message: str | None
     available_tools: list[dict[str, Any]]
+    selected_tools: list[str] | None
     selected_tool: str | None
-    tool_result: dict[str, Any] | None
+    tool_result: dict[str, Any] | list[dict[str, Any]] | None
     security_intent: bool | None
     llm_response_preview: str | None
 
