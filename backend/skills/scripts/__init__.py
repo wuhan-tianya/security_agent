@@ -1,7 +1,7 @@
 """
 移动端安全测试工具模块
 """
-from .apk_analyzer import APKAnalyzer
+# from .apk_analyzer import APKAnalyzer
 from .permission_checker import PermissionChecker
 from .vulnerability_scanner import VulnerabilityScanner
 from .network_analyzer import NetworkAnalyzer
@@ -12,7 +12,7 @@ from .dynamic_scanner import DynamicScanner
 from .mobsf_static_analyzer import MobSFStaticAnalyzer
 
 __all__ = [
-    'APKAnalyzer',
+    # 'APKAnalyzer',
     'PermissionChecker',
     'VulnerabilityScanner',
     'NetworkAnalyzer',
