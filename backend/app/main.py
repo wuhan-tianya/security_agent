@@ -2,9 +2,11 @@ from __future__ import annotations
 
 import time
 import uuid
+from pathlib import Path
 
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 from loguru import logger
 
 from app.api.v1 import router as v1_router
@@ -23,6 +25,11 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+backend_root = Path(__file__).resolve().parents[1]
+summaries_dir = backend_root / "summaries"
+summaries_dir.mkdir(parents=True, exist_ok=True)
+app.mount("/summaries", StaticFiles(directory=str(summaries_dir)), name="summaries")
 
 @app.middleware("http")
 async def request_logger(request: Request, call_next):

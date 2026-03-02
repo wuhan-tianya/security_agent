@@ -13,6 +13,7 @@ class Settings(BaseModel):
     app_name: str = "Vehicle Security Agent"
     db_path: str = "./data/security_agent.db"
     config_file: str = "config/settings.json"
+    public_base_url: str = "http://127.0.0.1:8000"
 
     llm_base_url: str = "http://localhost:8001/v1"
     llm_api_key: str = ""
@@ -38,6 +39,7 @@ class Settings(BaseModel):
         env_mapping = {
             "APP_NAME": "app_name",
             "DB_PATH": "db_path",
+            "PUBLIC_BASE_URL": "public_base_url",
             "LLM_BASE_URL": "llm_base_url",
             "LLM_API_KEY": "llm_api_key",
             "LLM_MODEL": "llm_model",

@@ -130,6 +130,11 @@
 - 流式返回为空时回退到非流式结果，确保对话内容写入数据库。
 - 记录流式解析与工具调用异常到日志，便于排障与对齐 OpenAI 工具调用格式。
 - 修复工具回传消息格式：透传路由阶段 assistant 的 `reasoning_content` 与 `tool_calls`，避免思考模型校验报错。
+- 增加模型工具调用多轮循环：解析并执行模型返回的 `tool_calls`，回填 `role=tool` 结果后继续推理，直到得到最终回答。
+- 增加 `content` 内嵌 `<function_calls>` 解析兼容，避免非结构化工具调用被忽略导致单轮结束。
+- 新增内置工具 `generate_security_report`，真实写入 `backend/summaries`，并挂载 `/summaries` 静态访问。
+- 工具 schema 改为根据 `execute` 签名自动生成，支持 `apk_path` 等必填参数。
+- 报告生成后自动在最终回答追加可点击链接（绝对 URL），前端可直接打开报告页面。
 
 ### 2026-02-26
 - 移除车机连接/引导与 MCP 调用链路。

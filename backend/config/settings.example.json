@@ -1,6 +1,7 @@
 {
   "app_name": "Security Agent",
   "db_path": "./data/security_agent.db",
+  "public_base_url": "http://127.0.0.1:8000",
   "llm_base_url": "https://api.kimi.com/coding/v1",
   "llm_api_key": "",
   "llm_model": "kimi-for-coding",
