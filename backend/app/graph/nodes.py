@@ -186,6 +186,13 @@ async def skill_call_node(
                 }
             )
 
+        state["tool_router_assistant_message"] = {
+            "role": "assistant",
+            "content": route_resp.get("content") or "",
+            "tool_calls": tool_calls,
+            "reasoning_content": route_resp.get("reasoning_content") or "",
+        }
+
         results: list[dict[str, Any]] = []
         selected_tools: list[str] = []
         for call in tool_calls:
@@ -234,16 +241,10 @@ async def skill_call_node(
     return state
 
 
-async def reflect_node(state: AgentState, llm_client: OpenAICompatibleClient) -> AgentState:
-    if state.get("error_code"):
-        state["final_response"] = f"工具调用失败（{state['error_code']}）：{state.get('error_message', 'unknown error')}"
-        append_event(state, "reasoning_trace", {"decision": "fast_fail_on_skill_error"})
-        return state
-
+def build_reflect_messages(state: AgentState) -> list[dict[str, Any]]:
     system_prompt = state["system_prompt"]
     user_prompt = render_user_prompt(state["user_template"], state["user_input"], state.get("memory_context", ""))
     tool_policy = state["tool_policy"]
-
     tool_result = state.get("tool_result")
     tool_calls = state.get("tool_calls") or []
 
@@ -253,7 +254,12 @@ async def reflect_node(state: AgentState, llm_client: OpenAICompatibleClient) ->
     ]
 
     if tool_calls and isinstance(tool_result, list):
-        messages.append({"role": "assistant", "content": "", "tool_calls": tool_calls})
+        assistant_msg = dict(state.get("tool_router_assistant_message") or {})
+        assistant_msg["role"] = "assistant"
+        assistant_msg["tool_calls"] = tool_calls
+        if "content" not in assistant_msg:
+            assistant_msg["content"] = ""
+        messages.append(assistant_msg)
         for item in tool_result:
             tool_call_id = item.get("tool_call_id") or ""
             result_payload = item.get("result")
@@ -269,12 +275,22 @@ async def reflect_node(state: AgentState, llm_client: OpenAICompatibleClient) ->
                 }
             )
     elif tool_result is not None:
-        tool_result_text = ""
         try:
             tool_result_text = json.dumps(tool_result, ensure_ascii=False)
         except Exception:
             tool_result_text = str(tool_result)
         messages[-1]["content"] = f"{user_prompt}\n\n工具结果:\n{tool_result_text}\n\n请给出简洁的安全分析结论。"
+
+    return messages
+
+
+async def reflect_node(state: AgentState, llm_client: OpenAICompatibleClient) -> AgentState:
+    if state.get("error_code"):
+        state["final_response"] = f"工具调用失败（{state['error_code']}）：{state.get('error_message', 'unknown error')}"
+        append_event(state, "reasoning_trace", {"decision": "fast_fail_on_skill_error"})
+        return state
+
+    messages = build_reflect_messages(state)
     try:
         logger.bind(session_id=state.get("session_id")).info("llm_messages={}", messages)
     except Exception:

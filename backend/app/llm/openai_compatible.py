@@ -12,13 +12,13 @@ class OpenAICompatibleClient:
     def __init__(self) -> None:
         self.settings = get_settings()
 
-    async def chat_completion(self, messages: list[dict[str, str]], model: str | None = None) -> str:
+    async def chat_completion(self, messages: list[dict[str, Any]], model: str | None = None) -> str:
         result = await self._chat_completion_raw(messages=messages, model=model)
         return result["content"]
 
     async def chat_completion_with_tools(
         self,
-        messages: list[dict[str, str]],
+        messages: list[dict[str, Any]],
         tools: list[dict[str, Any]],
         tool_choice: str | dict[str, Any] | None = None,
         model: str | None = None,
@@ -33,7 +33,7 @@ class OpenAICompatibleClient:
 
     async def stream_chat_completion(
         self,
-        messages: list[dict[str, str]],
+        messages: list[dict[str, Any]],
         model: str | None = None,
     ) -> AsyncIterator[str]:
         model_name = model or self.settings.llm_model
@@ -85,14 +85,18 @@ class OpenAICompatibleClient:
 
     async def _chat_completion_raw(
         self,
-        messages: list[dict[str, str]],
+        messages: list[dict[str, Any]],
         model: str | None = None,
         tools: list[dict[str, Any]] | None = None,
         tool_choice: str | dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         model_name = model or self.settings.llm_model
         if not self.settings.llm_api_key:
-            return {"content": "模型未配置 API Key，已返回基于规则的结果。", "tool_calls": []}
+            return {
+                "content": "模型未配置 API Key，已返回基于规则的结果。",
+                "tool_calls": [],
+                "reasoning_content": "",
+            }
 
         payload: dict[str, Any] = {
             "model": model_name,
@@ -123,9 +127,10 @@ class OpenAICompatibleClient:
 
         choices = data.get("choices") or []
         if not choices:
-            return {"content": "", "tool_calls": []}
+            return {"content": "", "tool_calls": [], "reasoning_content": ""}
         message = choices[0].get("message") or {}
         return {
             "content": message.get("content") or "",
             "tool_calls": message.get("tool_calls") or [],
+            "reasoning_content": message.get("reasoning_content") or "",
         }
