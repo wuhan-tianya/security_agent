@@ -194,7 +194,7 @@ const ChatWindow = () => {
       setMessages(prev => [...prev, {
         id: Date.now().toString(),
         role: 'system',
-        content: 'Connection error. Please try again.',
+        content: '连接错误，请重试。',
         timestamp: new Date().toLocaleTimeString(),
         type: 'error'
       }]);
@@ -214,7 +214,7 @@ const ChatWindow = () => {
                   return [...prev, {
                       id: `run-${Date.now()}`,
                       role: 'system',
-                      content: 'Agent run started...',
+                      content: '任务已启动...',
                       timestamp,
                       type: 'info'
                   }];
@@ -241,7 +241,7 @@ const ChatWindow = () => {
                   return [...prev, {
                       id: `tool-${Date.now()}`,
                       role: 'system',
-                      content: `Running tool: ${event.tool || 'unknown'}`,
+                      content: `正在调用工具: ${event.tool || '未知'}`,
                       timestamp,
                       type: 'tool_call',
                       metadata: event
@@ -253,7 +253,7 @@ const ChatWindow = () => {
                   return [...prev, {
                       id: `tool-res-${Date.now()}`,
                       role: 'system',
-                      content: `Tool finished: ${event.tool}`,
+                      content: `工具执行完成: ${event.tool}`,
                       timestamp,
                       type: 'tool_result',
                       metadata: event
@@ -263,7 +263,7 @@ const ChatWindow = () => {
                    return [...prev, {
                       id: `tool-fail-${Date.now()}`,
                       role: 'system',
-                      content: `Tool failed: ${event.message || event.error_code}`,
+                      content: `工具调用失败: ${event.message || event.error_code}`,
                       timestamp,
                       type: 'error',
                       metadata: event
@@ -271,13 +271,13 @@ const ChatWindow = () => {
 
               case 'reasoning_trace':
                   // Format reasoning trace for display
-                  let traceContent = `Thinking: ${event.decision}`;
+                  let traceContent = `思考: ${event.decision}`;
                   if (event.decision === 'intent_classified') {
-                      traceContent = `Intent Analysis: ${event.security_intent ? 'Security Related' : 'General Query'}`;
+                      traceContent = `意图分析: ${event.security_intent ? '安全相关' : '普通查询'}`;
                   } else if (event.decision === 'skill_result_reflected') {
-                      traceContent = `Reflecting on tool output...`;
+                      traceContent = `正在反思工具结果...`;
                   } else if (event.decision === 'no_tool_selected') {
-                       traceContent = `No suitable tool found.`;
+                       traceContent = `未找到合适的工具。`;
                   }
                   
                   return [...prev, {
@@ -293,7 +293,7 @@ const ChatWindow = () => {
                   return [...prev, {
                       id: `skills-${Date.now()}`,
                       role: 'system',
-                      content: `Discovered ${event.count} available tools: ${event.tools.join(', ')}`,
+                      content: `发现 ${event.count} 个可用工具: ${event.tools.join(', ')}`,
                       timestamp,
                       type: 'info',
                       metadata: event
@@ -303,7 +303,7 @@ const ChatWindow = () => {
                    return [...prev, {
                       id: `err-${Date.now()}`,
                       role: 'system',
-                      content: `Run Error: ${event.message || event.error_code}`,
+                      content: `运行错误: ${event.message || event.error_code}`,
                       timestamp,
                       type: 'error',
                       metadata: event
@@ -313,7 +313,7 @@ const ChatWindow = () => {
                   return [...prev, {
                       id: `mem-${Date.now()}`,
                       role: 'system',
-                      content: `Context loaded: ${event.message_count} messages${event.has_summary ? ' + summary' : ''}`,
+                      content: `上下文加载: ${event.message_count} 条消息${event.has_summary ? ' + 摘要' : ''}`,
                       timestamp,
                       type: 'info',
                       metadata: event
@@ -327,7 +327,7 @@ const ChatWindow = () => {
                    return [...prev, {
                       id: `fin-${Date.now()}`,
                       role: 'system',
-                      content: 'Run finished.',
+                      content: '任务完成。',
                       timestamp,
                       type: 'info'
                   }];
