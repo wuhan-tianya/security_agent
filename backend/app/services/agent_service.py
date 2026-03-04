@@ -70,6 +70,7 @@ class AgentService:
             "model": resolved_model,
             "events": [],
         }
+        emitted_tokens: list[str] = []
 
         emitted = 0
         async def _emit_new_events():
@@ -107,48 +108,63 @@ class AgentService:
                 pass
 
             try:
-                resolved_messages = await self._resolve_tool_calls(state, messages)
-                chunks: list[str] = []
-                async for token in self.llm_client.stream_chat_completion(
-                    resolved_messages,
-                    model=state.get("model"),
-                ):
-                    if token:
-                        chunks.append(token)
-                        yield self._format_sse("llm_token", {"token": token})
-
-                if chunks:
-                    final_response = "".join(chunks)
-                else:
-                    final_response = await self.llm_client.chat_completion(
+                max_finalize_rounds = 3
+                for finalize_round in range(max_finalize_rounds):
+                    resolved_messages = await self._resolve_tool_calls(state, resolved_messages)
+                    chunks: list[str] = []
+                    async for token in self.llm_client.stream_chat_completion(
                         resolved_messages,
                         model=state.get("model"),
-                    )
-                    if final_response:
-                        for part in self._chunk_text(final_response):
+                    ):
+                        if token:
+                            chunks.append(token)
+                            emitted_tokens.append(token)
+                            yield self._format_sse("llm_token", {"token": token})
+
+                    if chunks:
+                        final_response = "".join(chunks)
+                    else:
+                        final_response = await self.llm_client.chat_completion(
+                            resolved_messages,
+                            model=state.get("model"),
+                        )
+                        if final_response:
+                            for part in self._chunk_text(final_response):
+                                emitted_tokens.append(part)
+                                yield self._format_sse("llm_token", {"token": part})
+
+                    final_response, link_tail = self._append_report_links(final_response, state)
+                    if link_tail:
+                        for part in self._chunk_text(link_tail):
+                            emitted_tokens.append(part)
                             yield self._format_sse("llm_token", {"token": part})
 
-                shown_response = final_response or ""
-                generated_reports = state.get("generated_reports") or []
-                if generated_reports:
-                    link_lines = []
-                    for idx, item in enumerate(generated_reports, 1):
-                        url = item.get("url") or ""
-                        name = item.get("filename") or f"report_{idx}"
-                        if url:
-                            link_lines.append(f"{idx}. [{name}]({url})")
-                    need_append_links = any(
-                        item.get("url") and item.get("url") not in shown_response for item in generated_reports
-                    )
-                    if link_lines and need_append_links:
-                        final_response = (final_response or "").rstrip() + "\n\n报告链接：\n" + "\n".join(link_lines)
-                        tail = final_response[len(shown_response):]
-                        for part in self._chunk_text(tail):
-                            yield self._format_sse("llm_token", {"token": part})
+                    if not final_response:
+                        final_response = "工具调用已完成，但模型未返回文本结果。"
+                        emitted_tokens.append(final_response)
+                        yield self._format_sse("llm_token", {"token": final_response})
+                        break
 
-                if not final_response:
-                    final_response = "工具调用已完成，但模型未返回文本结果。"
-                    yield self._format_sse("llm_token", {"token": final_response})
+                    if not self._is_in_progress_response(final_response):
+                        break
+
+                    append_event(
+                        state,
+                        "reasoning_trace",
+                        {"decision": "final_response_in_progress_retry", "round": finalize_round + 1},
+                    )
+                    async for msg in _emit_new_events():
+                        yield msg
+                    resolved_messages.append({"role": "assistant", "content": final_response})
+                    resolved_messages.append(
+                        {
+                            "role": "user",
+                            "content": (
+                                "你上一条回复仍是进度状态。请继续执行必要步骤，并直接给出最终结论与可访问报告链接。"
+                                "不要只返回“进行中/请稍候/分析中”。"
+                            ),
+                        }
+                    )
             except Exception as exc:
                 logger.bind(session_id=state.get("session_id")).exception("llm_stream_failed_fallback: {}", str(exc))
                 append_event(
@@ -158,8 +174,10 @@ class AgentService:
                 )
                 try:
                     final_response = await self.llm_client.chat_completion(resolved_messages, model=state.get("model"))
+                    final_response, _ = self._append_report_links(final_response, state)
                     if final_response:
                         for part in self._chunk_text(final_response):
+                            emitted_tokens.append(part)
                             yield self._format_sse("llm_token", {"token": part})
                 except Exception as exc2:
                     logger.bind(session_id=state.get("session_id")).exception(
@@ -168,6 +186,7 @@ class AgentService:
                     final_response = _fallback_summary_from_tool(state.get("selected_tool"), state.get("tool_result"))
                     if final_response:
                         for part in self._chunk_text(final_response):
+                            emitted_tokens.append(part)
                             yield self._format_sse("llm_token", {"token": part})
                     append_event(
                         state,
@@ -175,6 +194,9 @@ class AgentService:
                         {"decision": "llm_non_stream_failed_fallback", "error": str(exc2)[:300]},
                     )
 
+        displayed_response = "".join(emitted_tokens).strip()
+        if displayed_response:
+            final_response = displayed_response
         state["final_response"] = final_response
         append_event(state, "llm_response", {"preview": final_response[:500]})
         async for msg in _emit_new_events():
@@ -201,6 +223,42 @@ class AgentService:
         if not text:
             return []
         return [text[i : i + size] for i in range(0, len(text), size)]
+
+    def _append_report_links(self, final_response: str, state: dict[str, Any]) -> tuple[str, str]:
+        current = final_response or ""
+        generated_reports = state.get("generated_reports") or []
+        if not generated_reports:
+            return current, ""
+
+        link_lines = []
+        for idx, item in enumerate(generated_reports, 1):
+            url = item.get("url") or ""
+            name = item.get("filename") or f"report_{idx}"
+            if url:
+                link_lines.append(f"{idx}. [{name}]({url})")
+        if not link_lines:
+            return current, ""
+
+        if all((item.get("url") or "") in current for item in generated_reports if item.get("url")):
+            return current, ""
+
+        updated = current.rstrip() + "\n\n报告链接：\n" + "\n".join(link_lines)
+        tail = updated[len(current):]
+        return updated, tail
+
+    @staticmethod
+    def _is_in_progress_response(text: str) -> bool:
+        if not text:
+            return False
+        zh_pending = ["进行中", "请稍候", "稍后", "正在分析", "分析中", "处理中", "等待中", "⏳"]
+        en_pending = ["in progress", "processing", "still analyzing", "working on", "please wait"]
+        zh_done = ["最终结论", "结论", "已完成", "任务完成", "报告链接", "已生成报告", "完成"]
+        en_done = ["final", "completed", "done", "report link"]
+
+        lowered = text.lower()
+        has_pending = any(k in text for k in zh_pending) or any(k in lowered for k in en_pending)
+        has_done = any(k in text for k in zh_done) or any(k in lowered for k in en_done)
+        return has_pending and not has_done
 
     async def _resolve_tool_calls(self, state: dict[str, Any], messages: list[dict[str, Any]]) -> list[dict[str, Any]]:
         tool_defs = self._build_runtime_tool_defs()
