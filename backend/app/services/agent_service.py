@@ -42,10 +42,13 @@ class AgentService:
         user_input: str,
         model: str | None = None,
     ) -> dict[str, Any]:
+        # Always use backend-configured model; ignore caller-provided model override.
+        _ = model
+        resolved_model = self.settings.llm_model
         initial_state: dict[str, Any] = {
             "session_id": session_id,
             "user_input": user_input,
-            "model": model,
+            "model": resolved_model,
             "events": [],
         }
         result = await self.graph.ainvoke(initial_state)
@@ -57,11 +60,14 @@ class AgentService:
         user_input: str,
         model: str | None = None,
     ) -> AsyncIterator[str]:
+        # Always use backend-configured model; ignore caller-provided model override.
+        _ = model
+        resolved_model = self.settings.llm_model
         yield self._format_sse("run_started", {"session_id": session_id})
         state: dict[str, Any] = {
             "session_id": session_id,
             "user_input": user_input,
-            "model": model,
+            "model": resolved_model,
             "events": [],
         }
 

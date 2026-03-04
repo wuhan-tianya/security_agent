@@ -17,7 +17,7 @@ async def chat_stream(req: ChatStreamRequest, service: AgentService = Depends(ge
         service.stream_sse_events(
             session_id=req.session_id,
             user_input=req.user_input,
-            model=req.model,
+            model=None,
         ),
         media_type="text/event-stream",
         headers={"Cache-Control": "no-cache", "Connection": "keep-alive"},
