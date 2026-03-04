@@ -1,12 +1,14 @@
 from __future__ import annotations
 
 import json
+import re
 from typing import Any
 
 from loguru import logger
 
 from app.graph.events import append_event
 from app.graph.state import AgentState
+from app.core.config import get_settings
 from app.llm.openai_compatible import OpenAICompatibleClient
 from app.skills.registry import SkillRegistry
 from app.memory.repository import Repository
@@ -98,15 +100,23 @@ async def load_prompt_node(state: AgentState, prompt_loader: PromptLoader) -> Ag
 
 async def memory_read_node(state: AgentState, repo: Repository) -> AgentState:
     session_id = state["session_id"]
+    settings = get_settings()
     repo.ensure_session(session_id)
-    recent = repo.get_recent_messages(session_id, limit=8)
+    recent = repo.get_recent_messages(session_id, limit=settings.memory_context_message_limit)
     summary = repo.get_latest_summary(session_id) or ""
-    memory_context = "\n".join([f"{m['role']}: {m['content']}" for m in recent])
+    memory_context = "\n".join([f"{m['role']}: {_sanitize_history_content(m['content'])}" for m in recent])
     if summary:
         memory_context = f"summary: {summary}\n{memory_context}".strip()
     state["memory_context"] = memory_context
     append_event(state, "memory_read", {"message_count": len(recent), "has_summary": bool(summary)})
     return state
+
+
+def _sanitize_history_content(content: str) -> str:
+    text = content or ""
+    # Prevent old tool markup from being interpreted as fresh tool calls.
+    text = re.sub(r"<function_calls>.*?</function_calls>", "[history tool calls omitted]", text, flags=re.S | re.I)
+    return text
 
 
 async def skill_call_node(

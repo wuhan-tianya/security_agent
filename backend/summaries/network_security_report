@@ -1,0 +1,6 @@
+<!doctype html><html><head><meta charset='utf-8'><title>网络安全测试报告</title></head><body><h1>网络安全测试报告</h1><p>生成时间: 2026-03-04T09:30:35</p><p>报告类型: network_security</p><p>模块: network_analysis, vulnerability_scan, security_assessment</p><h2>发现</h2><pre>{
+  "summary": "待补充测试结果",
+  "issues": [],
+  "risk_level": "unknown",
+  "recommendations": []
+}</pre></body></html>

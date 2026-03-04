@@ -19,6 +19,7 @@ class Settings(BaseModel):
     llm_api_key: str = ""
     llm_model: str = "gpt-4o-mini"
     llm_timeout_seconds: int = 30
+    memory_context_message_limit: int = 30
 
 
     default_system_prompt_file: str = "prompts/system.md"
@@ -44,6 +45,7 @@ class Settings(BaseModel):
             "LLM_API_KEY": "llm_api_key",
             "LLM_MODEL": "llm_model",
             "LLM_TIMEOUT_SECONDS": "llm_timeout_seconds",
+            "MEMORY_CONTEXT_MESSAGE_LIMIT": "memory_context_message_limit",
             "DEFAULT_SYSTEM_PROMPT_FILE": "default_system_prompt_file",
             "DEFAULT_USER_PROMPT_FILE": "default_user_prompt_file",
             "DEFAULT_TOOL_POLICY_FILE": "default_tool_policy_file",

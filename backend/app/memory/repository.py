@@ -38,7 +38,7 @@ class Repository:
                 (session_id, role, content, json.dumps(tool_payload or {})),
             )
 
-    def get_recent_messages(self, session_id: str, limit: int = 8) -> list[dict[str, Any]]:
+    def get_recent_messages(self, session_id: str, limit: int = 30) -> list[dict[str, Any]]:
         with self.db.connection() as conn:
             rows = conn.execute(
                 """

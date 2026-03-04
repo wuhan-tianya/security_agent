@@ -6,6 +6,7 @@
   "llm_api_key": "",
   "llm_model": "kimi-for-coding",
   "llm_timeout_seconds": 30,
+  "memory_context_message_limit": 30,
   "default_system_prompt_file": "prompts/system.md",
   "default_user_prompt_file": "prompts/user_template.md",
   "default_tool_policy_file": "prompts/policies/tool_call_policy.md"
