@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react';
-import { Terminal, Cpu, AlertCircle, Play, Plus, MessageSquare } from 'lucide-react';
+import { Terminal, Cpu, AlertCircle, Play, Plus, MessageSquare, Brain, ChevronDown, ChevronRight } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import remarkBreaks from 'remark-breaks';
@@ -13,6 +13,83 @@ interface Message {
   type?: 'text' | 'tool_call' | 'tool_result' | 'error' | 'info';
   metadata?: any;
 }
+
+const ThinkingProcess = ({ content }: { content: string }) => {
+    // Check if content contains <think> tag
+    if (!content.includes('<think>')) {
+        return (
+            <ReactMarkdown remarkPlugins={[remarkGfm, remarkBreaks]}>
+                {content}
+            </ReactMarkdown>
+        );
+    }
+
+    // Split content into parts
+    const parts = [];
+    let remaining = content;
+    
+    // Find all think blocks
+    while (remaining.includes('<think>')) {
+        const startIdx = remaining.indexOf('<think>');
+        const preThink = remaining.substring(0, startIdx);
+        
+        if (preThink) {
+            parts.push({ type: 'text', content: preThink });
+        }
+        
+        const endIdx = remaining.indexOf('</think>');
+        if (endIdx !== -1 && endIdx > startIdx) {
+            const thinkContent = remaining.substring(startIdx + 7, endIdx);
+            parts.push({ type: 'think', content: thinkContent, isThinking: false });
+            remaining = remaining.substring(endIdx + 8);
+        } else {
+            // Still thinking (no closing tag)
+            const thinkContent = remaining.substring(startIdx + 7);
+            parts.push({ type: 'think', content: thinkContent, isThinking: true });
+            remaining = '';
+            break;
+        }
+    }
+    
+    if (remaining) {
+        parts.push({ type: 'text', content: remaining });
+    }
+
+    return (
+        <div className="space-y-2">
+            {parts.map((part, idx) => {
+                if (part.type === 'text') {
+                    return (
+                        <div key={idx} className="markdown-content">
+                             <ReactMarkdown remarkPlugins={[remarkGfm, remarkBreaks]}>
+                                {part.content}
+                            </ReactMarkdown>
+                        </div>
+                    );
+                } else {
+                    return (
+                        <details 
+                            key={idx} 
+                            className="group border border-gray-700/50 rounded-lg overflow-hidden bg-black/20 my-2" 
+                            open={part.isThinking}
+                        >
+                            <summary className="flex items-center gap-2 px-3 py-2 cursor-pointer bg-gray-900/50 hover:bg-gray-800/80 transition-colors select-none text-xs text-gray-400 font-medium list-none">
+                                <div className="flex items-center gap-2 flex-1">
+                                    <Brain className={`w-3.5 h-3.5 ${part.isThinking ? 'animate-pulse text-security-primary' : 'text-gray-500'}`} />
+                                    <span>{part.isThinking ? '正在深度思考...' : '思考过程'}</span>
+                                </div>
+                                <ChevronDown className="w-3 h-3 opacity-50 group-open:rotate-180 transition-transform duration-200" />
+                            </summary>
+                            <div className="p-3 text-gray-400 text-xs border-t border-gray-700/30 bg-black/10 max-h-[500px] overflow-y-auto font-mono whitespace-pre-wrap break-all leading-relaxed custom-scrollbar">
+                                {part.content || (part.isThinking && <span className="animate-pulse">...</span>)}
+                            </div>
+                        </details>
+                    );
+                }
+            })}
+        </div>
+    );
+};
 
 const ChatWindow = () => {
   const [messages, setMessages] = useState<Message[]>([]);
@@ -399,9 +476,7 @@ const ChatWindow = () => {
               </div>
               
               <div className="font-mono text-sm leading-relaxed markdown-content break-words">
-                <ReactMarkdown remarkPlugins={[remarkGfm, remarkBreaks]}>
-                    {msg.content}
-                </ReactMarkdown>
+                <ThinkingProcess content={msg.content} />
               </div>
               
               {/* Tool Call Arguments */}
