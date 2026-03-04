@@ -48,6 +48,10 @@ class OpenAICompatibleClient:
             "stream": True,
         }
         headers = {"Authorization": f"Bearer {self.settings.llm_api_key}", "User-Agent": "KimiCLI/1.6"}
+        emitted_text = ""
+        last_raw_chunk = ""
+        no_progress_count = 0
+        same_chunk_repeat = 0
 
         async with httpx.AsyncClient(timeout=self.settings.llm_timeout_seconds, trust_env=False) as client:
             try:
@@ -75,8 +79,40 @@ class OpenAICompatibleClient:
                             continue
                         delta = (chunk.get("choices") or [{}])[0].get("delta", {})
                         content = delta.get("content")
-                        if content:
-                            yield content
+                        if not content:
+                            continue
+
+                        raw_chunk = content if isinstance(content, str) else str(content)
+                        out = raw_chunk
+
+                        # Compatibility: some providers stream cumulative content instead of deltas.
+                        if emitted_text and raw_chunk.startswith(emitted_text):
+                            out = raw_chunk[len(emitted_text):]
+                        elif emitted_text and emitted_text.startswith(raw_chunk):
+                            out = ""
+                        elif raw_chunk == last_raw_chunk:
+                            out = ""
+
+                        if out:
+                            emitted_text += out
+                            no_progress_count = 0
+                            same_chunk_repeat = 0
+                            yield out
+                        else:
+                            no_progress_count += 1
+                            if raw_chunk == last_raw_chunk:
+                                same_chunk_repeat += 1
+                            else:
+                                same_chunk_repeat = 0
+                            # Avoid endless repeating tail chunks from buggy gateways.
+                            if same_chunk_repeat >= 40 or no_progress_count >= 300:
+                                logger.bind(event="llm_stream_stalled").warning(
+                                    "breaking stream due to no progress repeat={} stalled={}",
+                                    same_chunk_repeat,
+                                    no_progress_count,
+                                )
+                                break
+                        last_raw_chunk = raw_chunk
             except httpx.HTTPStatusError as exc:
                 status = exc.response.status_code if exc.response is not None else "unknown"
                 body = exc.response.text[:500] if exc.response is not None else ""

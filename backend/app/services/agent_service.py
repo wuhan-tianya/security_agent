@@ -99,6 +99,7 @@ class AgentService:
             append_event(state, "reasoning_trace", {"decision": "fast_fail_on_skill_error"})
         else:
             messages = build_reflect_messages(state)
+            resolved_messages = messages
 
             try:
                 logger.bind(session_id=state.get("session_id")).info("llm_messages={}", messages)
@@ -106,7 +107,28 @@ class AgentService:
                 pass
 
             try:
-                final_response = await self._run_model_loop_with_tools(state, messages)
+                resolved_messages = await self._resolve_tool_calls(state, messages)
+                chunks: list[str] = []
+                async for token in self.llm_client.stream_chat_completion(
+                    resolved_messages,
+                    model=state.get("model"),
+                ):
+                    if token:
+                        chunks.append(token)
+                        yield self._format_sse("llm_token", {"token": token})
+
+                if chunks:
+                    final_response = "".join(chunks)
+                else:
+                    final_response = await self.llm_client.chat_completion(
+                        resolved_messages,
+                        model=state.get("model"),
+                    )
+                    if final_response:
+                        for part in self._chunk_text(final_response):
+                            yield self._format_sse("llm_token", {"token": part})
+
+                shown_response = final_response or ""
                 generated_reports = state.get("generated_reports") or []
                 if generated_reports:
                     link_lines = []
@@ -115,13 +137,18 @@ class AgentService:
                         name = item.get("filename") or f"report_{idx}"
                         if url:
                             link_lines.append(f"{idx}. [{name}]({url})")
-                    if link_lines:
+                    need_append_links = any(
+                        item.get("url") and item.get("url") not in shown_response for item in generated_reports
+                    )
+                    if link_lines and need_append_links:
                         final_response = (final_response or "").rstrip() + "\n\n报告链接：\n" + "\n".join(link_lines)
-                if final_response:
-                    for chunk in self._chunk_text(final_response):
-                        yield self._format_sse("llm_token", {"token": chunk})
-                else:
+                        tail = final_response[len(shown_response):]
+                        for part in self._chunk_text(tail):
+                            yield self._format_sse("llm_token", {"token": part})
+
+                if not final_response:
                     final_response = "工具调用已完成，但模型未返回文本结果。"
+                    yield self._format_sse("llm_token", {"token": final_response})
             except Exception as exc:
                 logger.bind(session_id=state.get("session_id")).exception("llm_stream_failed_fallback: {}", str(exc))
                 append_event(
@@ -130,14 +157,18 @@ class AgentService:
                     {"decision": "llm_stream_failed_retry_non_stream", "error": str(exc)[:300]},
                 )
                 try:
-                    final_response = await self.llm_client.chat_completion(messages, model=state.get("model"))
+                    final_response = await self.llm_client.chat_completion(resolved_messages, model=state.get("model"))
                     if final_response:
-                        yield self._format_sse("llm_token", {"token": final_response})
+                        for part in self._chunk_text(final_response):
+                            yield self._format_sse("llm_token", {"token": part})
                 except Exception as exc2:
                     logger.bind(session_id=state.get("session_id")).exception(
                         "llm_non_stream_failed_fallback: {}", str(exc2)
                     )
                     final_response = _fallback_summary_from_tool(state.get("selected_tool"), state.get("tool_result"))
+                    if final_response:
+                        for part in self._chunk_text(final_response):
+                            yield self._format_sse("llm_token", {"token": part})
                     append_event(
                         state,
                         "reasoning_trace",
@@ -171,10 +202,10 @@ class AgentService:
             return []
         return [text[i : i + size] for i in range(0, len(text), size)]
 
-    async def _run_model_loop_with_tools(self, state: dict[str, Any], messages: list[dict[str, Any]]) -> str:
+    async def _resolve_tool_calls(self, state: dict[str, Any], messages: list[dict[str, Any]]) -> list[dict[str, Any]]:
         tool_defs = self._build_runtime_tool_defs()
         if not tool_defs:
-            return await self.llm_client.chat_completion(messages, model=state.get("model"))
+            return messages
 
         max_rounds = 8
         for round_idx in range(max_rounds):
@@ -186,7 +217,7 @@ class AgentService:
             )
             normalized_calls = self._normalize_model_tool_calls(resp, round_idx=round_idx)
             if not normalized_calls:
-                return resp.get("content") or ""
+                return messages
 
             assistant_msg: dict[str, Any] = {
                 "role": "assistant",
@@ -256,7 +287,8 @@ class AgentService:
                 )
 
         logger.bind(session_id=state.get("session_id")).warning("model_tool_loop_reached_max_rounds rounds={}", max_rounds)
-        return "工具调用轮次达到上限，已停止。"
+        append_event(state, "reasoning_trace", {"decision": "model_tool_loop_reached_max_rounds", "rounds": max_rounds})
+        return messages
 
     def _build_runtime_tool_defs(self) -> list[dict[str, Any]]:
         defs: list[dict[str, Any]] = []
