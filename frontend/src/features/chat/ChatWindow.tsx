@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react';
-import { Terminal, Cpu, AlertCircle, Play, Plus, MessageSquare, Brain, ChevronDown, ChevronRight } from 'lucide-react';
+import { Terminal, Cpu, AlertCircle, Play, Plus, MessageSquare, Brain, ChevronDown } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import remarkBreaks from 'remark-breaks';
@@ -401,7 +401,32 @@ const ChatWindow = () => {
                   return prev;
 
               case 'run_finished':
-                   return [...prev, {
+                  if (event.final_response) {
+                      if (lastMsg && lastMsg.role === 'assistant' && lastMsg.type === 'text') {
+                          const updated = [...prev.slice(0, -1), { ...lastMsg, content: event.final_response }];
+                          return [...updated, {
+                              id: `fin-${Date.now()}`,
+                              role: 'system',
+                              content: '任务完成。',
+                              timestamp,
+                              type: 'info'
+                          }];
+                      }
+                      return [...prev, {
+                          id: `final-msg-${Date.now()}`,
+                          role: 'assistant',
+                          content: event.final_response,
+                          timestamp,
+                          type: 'text'
+                      }, {
+                          id: `fin-${Date.now()}`,
+                          role: 'system',
+                          content: '任务完成。',
+                          timestamp,
+                          type: 'info'
+                      }];
+                  }
+                  return [...prev, {
                       id: `fin-${Date.now()}`,
                       role: 'system',
                       content: '任务完成。',
