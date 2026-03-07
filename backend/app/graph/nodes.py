@@ -167,7 +167,7 @@ async def skill_call_node(
 
         route_messages = [
             {"role": "system", "content": "You are a tool router. Select tools to call based on the user request."},
-            {"role": "user", "content": query},
+            {"role": "user", "content": f"{query}\n\n[APK 文件已上传: {state.get('apk_path')}]" if state.get("apk_path") else query},
         ]
         route_resp = await llm_client.chat_completion_with_tools(
             route_messages,
@@ -228,6 +228,16 @@ async def skill_call_node(
                 args = {}
             if "query" not in args:
                 args["query"] = query
+
+            # 如果 state 中有 apk_path，自动注入到工具参数（仅当工具接受此参数时）
+            apk_path = state.get("apk_path")
+            if apk_path and "apk_path" not in args:
+                import inspect as _inspect
+                sig = _inspect.signature(tool.execute)
+                if "apk_path" in sig.parameters or any(
+                    p.kind == _inspect.Parameter.VAR_KEYWORD for p in sig.parameters.values()
+                ):
+                    args["apk_path"] = apk_path
 
             selected_tools.append(tool_name)
             append_event(state, "skill_call_started", {"tool": tool_name, "arguments": args})

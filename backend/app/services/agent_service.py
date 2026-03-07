@@ -41,6 +41,7 @@ class AgentService:
         session_id: str,
         user_input: str,
         model: str | None = None,
+        apk_path: str | None = None,
     ) -> dict[str, Any]:
         # Always use backend-configured model; ignore caller-provided model override.
         _ = model
@@ -49,6 +50,7 @@ class AgentService:
             "session_id": session_id,
             "user_input": user_input,
             "model": resolved_model,
+            "apk_path": apk_path,
             "events": [],
         }
         result = await self.graph.ainvoke(initial_state)
@@ -59,6 +61,7 @@ class AgentService:
         session_id: str,
         user_input: str,
         model: str | None = None,
+        apk_path: str | None = None,
     ) -> AsyncIterator[str]:
         # Always use backend-configured model; ignore caller-provided model override.
         _ = model
@@ -68,8 +71,12 @@ class AgentService:
             "session_id": session_id,
             "user_input": user_input,
             "model": resolved_model,
+            "apk_path": apk_path,
             "events": [],
         }
+        # 通知前端文件已上传
+        if apk_path:
+            yield self._format_sse("file_uploaded", {"apk_path": apk_path, "filename": Path(apk_path).name})
         emitted_tokens: list[str] = []
 
         emitted = 0
@@ -116,7 +123,12 @@ class AgentService:
                         resolved_messages,
                         model=state.get("model"),
                     ):
-                        if token:
+                        if not token:
+                            continue
+                        # Reasoning tokens arrive as ("reasoning", text) tuples
+                        if isinstance(token, tuple) and len(token) == 2 and token[0] == "reasoning":
+                            yield self._format_sse("llm_reasoning", {"token": token[1]})
+                        else:
                             chunks.append(token)
                             emitted_tokens.append(token)
                             yield self._format_sse("llm_token", {"token": token})
@@ -308,6 +320,18 @@ class AgentService:
 
                 append_event(state, "skill_call_started", {"tool": tool_name, "arguments": args})
                 append_event(state, "mcp_call_started", {"tool": tool_name, "arguments": args})
+
+                # 自动注入 apk_path（如果 state 中存在且工具接受该参数）
+                apk_path = state.get("apk_path")
+                if apk_path and "apk_path" not in args:
+                    tool = self.registry.get_tool(tool_name)
+                    if tool is not None:
+                        sig = inspect.signature(tool.execute)
+                        if "apk_path" in sig.parameters or any(
+                            p.kind == inspect.Parameter.VAR_KEYWORD for p in sig.parameters.values()
+                        ):
+                            args["apk_path"] = apk_path
+
                 result = self._execute_tool_call(tool_name=tool_name, args=args)
                 if tool_name == "generate_security_report" and result.get("success"):
                     report_data = result.get("data") or {}

@@ -35,10 +35,10 @@ class OpenAICompatibleClient:
         self,
         messages: list[dict[str, Any]],
         model: str | None = None,
-    ) -> AsyncIterator[str]:
+    ) -> AsyncIterator[str | tuple[str, str]]:
         model_name = model or self.settings.llm_model
         if not self.settings.llm_api_key:
-            yield "模型未配置 API Key，已返回基于规则的结果。"
+            yield "模型未配置 API Key，已返回基于规则的结果。"  # type: ignore[misc]
             return
 
         payload: dict[str, Any] = {
@@ -53,7 +53,16 @@ class OpenAICompatibleClient:
         no_progress_count = 0
         same_chunk_repeat = 0
 
-        async with httpx.AsyncClient(timeout=self.settings.llm_timeout_seconds, trust_env=False) as client:
+        # Use separate timeouts: connect can be short, but read must be long
+        # because thinking models (DeepSeek R1, Kimi, etc.) may spend minutes
+        # in their reasoning phase before emitting the first content token.
+        timeout = httpx.Timeout(
+            connect=min(self.settings.llm_timeout_seconds, 30),
+            read=300.0,
+            write=30.0,
+            pool=30.0,
+        )
+        async with httpx.AsyncClient(timeout=timeout, trust_env=False) as client:
             try:
                 async with client.stream(
                     "POST",
@@ -78,6 +87,12 @@ class OpenAICompatibleClient:
                             logger.bind(event="llm_stream_parse_failed").warning("stream_line={}", stripped[:500])
                             continue
                         delta = (chunk.get("choices") or [{}])[0].get("delta", {})
+
+                        # ---- reasoning_content (thinking tokens) ----
+                        reasoning = delta.get("reasoning_content")
+                        if reasoning:
+                            yield ("reasoning", reasoning)
+
                         content = delta.get("content")
                         if not content:
                             continue
@@ -147,7 +162,13 @@ class OpenAICompatibleClient:
 
         try:
             # trust_env=False avoids accidental proxy forwarding for private/self-hosted gateways.
-            async with httpx.AsyncClient(timeout=self.settings.llm_timeout_seconds, trust_env=False) as client:
+            timeout = httpx.Timeout(
+                connect=min(self.settings.llm_timeout_seconds, 30),
+                read=300.0,
+                write=30.0,
+                pool=30.0,
+            )
+            async with httpx.AsyncClient(timeout=timeout, trust_env=False) as client:
                 resp = await client.post(
                     f"{self.settings.llm_base_url.rstrip('/')}/chat/completions",
                     json=payload,

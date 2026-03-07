@@ -7,6 +7,7 @@ class AgentState(TypedDict, total=False):
     session_id: str
     user_input: str
     model: str | None
+    apk_path: str | None
 
     system_prompt: str
     user_template: str
