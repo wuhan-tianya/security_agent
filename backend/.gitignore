@@ -48,3 +48,5 @@ config/settings.local.json
 backend/config/settings.local.json
 backend/config/settings.json
 /config/settings.json
+*.html
+*.apk
