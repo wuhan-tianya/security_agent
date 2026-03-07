@@ -77,5 +77,6 @@ export const resetSession = async (sessionId: string) => {
 };
 
 export const CHAT_STREAM_URL = `${API_BASE_URL}/v1/chat/stream`;
+export const CHAT_STREAM_UPLOAD_URL = `${API_BASE_URL}/v1/chat/stream/upload`;
 
 export default api;
