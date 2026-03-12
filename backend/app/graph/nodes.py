@@ -63,21 +63,18 @@ def _fallback_summary_from_tool(
     return "\n".join(lines)
 
 
-async def classify_security_intent(state: AgentState, llm_client: OpenAICompatibleClient) -> AgentState:
+async def classify_security_intent(state: AgentState, llm_client: OpenAICompatibleClient, prompt_loader: PromptLoader) -> AgentState:
     # Allow tests or callers to pre-fill the decision.
     if state.get("security_intent") is not None:
         return state
 
     text = state.get("user_input", "")
-    prompt = (
-        "You are a binary classifier. Determine if the user's intent is related to security testing "
-        "(e.g., security scan, vulnerability analysis, permission/cert checks). "
-        "Reply with only YES or NO.\n\n"
-        f"User: {text}"
-    )
+    system_prompt = prompt_loader.load_classify_intent_system()
+    user_template = prompt_loader.load_classify_intent_user()
+    user_prompt = user_template.replace("{{user_input}}", text)
     messages = [
-        {"role": "system", "content": "Answer with only YES or NO."},
-        {"role": "user", "content": prompt},
+        {"role": "system", "content": system_prompt},
+        {"role": "user", "content": user_prompt},
     ]
     try:
         resp = await llm_client.chat_completion(messages, model=state.get("model"))
@@ -123,6 +120,7 @@ async def skill_call_node(
     state: AgentState,
     registry: SkillRegistry,
     llm_client: OpenAICompatibleClient,
+    prompt_loader: PromptLoader,
 ) -> AgentState:
     if not state.get("security_intent"):
         state["available_tools"] = []
@@ -165,9 +163,11 @@ async def skill_call_node(
                 }
             )
 
+        tool_router_system = prompt_loader.load_tool_router_system()
+        user_content = f"{query}\n\n[APK 文件已上传: {state.get('apk_path')}]" if state.get("apk_path") else query
         route_messages = [
-            {"role": "system", "content": "You are a tool router. Select tools to call based on the user request."},
-            {"role": "user", "content": f"{query}\n\n[APK 文件已上传: {state.get('apk_path')}]" if state.get("apk_path") else query},
+            {"role": "system", "content": tool_router_system},
+            {"role": "user", "content": user_content},
         ]
         route_resp = await llm_client.chat_completion_with_tools(
             route_messages,

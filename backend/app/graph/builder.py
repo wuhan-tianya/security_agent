@@ -27,10 +27,10 @@ def build_graph(repo: Repository, prompt_loader: PromptLoader, registry: SkillRe
         return await memory_read_node(state, repo)
 
     async def _skill_call(state):
-        return await skill_call_node(state, registry, llm_client)
+        return await skill_call_node(state, registry, llm_client, prompt_loader)
 
     async def _classify_intent(state):
-        return await classify_security_intent(state, llm_client)
+        return await classify_security_intent(state, llm_client, prompt_loader)
 
     async def _reflect(state):
         return await reflect_node(state, llm_client)

@@ -94,11 +94,11 @@ class AgentService:
         async for msg in _emit_new_events():
             yield msg
 
-        state = await classify_security_intent(state, self.llm_client)
+        state = await classify_security_intent(state, self.llm_client, self.prompt_loader)
         async for msg in _emit_new_events():
             yield msg
 
-        state = await skill_call_node(state, self.registry, self.llm_client)
+        state = await skill_call_node(state, self.registry, self.llm_client, self.prompt_loader)
         async for msg in _emit_new_events():
             yield msg
 
@@ -171,10 +171,7 @@ class AgentService:
                     resolved_messages.append(
                         {
                             "role": "user",
-                            "content": (
-                                "你上一条回复仍是进度状态。请继续执行必要步骤，并直接给出最终结论与可访问报告链接。"
-                                "不要只返回“进行中/请稍候/分析中”。"
-                            ),
+                            "content": self.prompt_loader.load_in_progress_retry(),
                         }
                     )
             except Exception as exc:

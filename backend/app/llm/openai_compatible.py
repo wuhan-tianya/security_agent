@@ -1,11 +1,23 @@
 from __future__ import annotations
 
+import json as _json_module
 from typing import Any, AsyncIterator
 
 import httpx
 from loguru import logger
 
 from app.core.config import get_settings
+
+
+def _truncate_messages_for_log(messages: list[dict[str, Any]], max_chars: int = 2000) -> str:
+    """Serialize messages for logging, truncating to avoid flooding."""
+    try:
+        text = _json_module.dumps(messages, ensure_ascii=False)
+        if len(text) > max_chars:
+            return text[:max_chars] + f"... (truncated, total {len(text)} chars)"
+        return text
+    except Exception:
+        return str(messages)[:max_chars]
 
 
 class OpenAICompatibleClient:
@@ -47,6 +59,12 @@ class OpenAICompatibleClient:
             "temperature": 0,
             "stream": True,
         }
+        logger.bind(event="llm_stream_request").info(
+            "model={} message_count={} messages={}",
+            model_name,
+            len(messages),
+            _truncate_messages_for_log(messages),
+        )
         headers = {"Authorization": f"Bearer {self.settings.llm_api_key}", "User-Agent": "KimiCLI/1.6"}
         emitted_text = ""
         last_raw_chunk = ""
@@ -79,10 +97,12 @@ class OpenAICompatibleClient:
                             continue
                         data = stripped.split("data:", 1)[1].strip()
                         if data == "[DONE]":
+                            logger.bind(event="llm_stream_done").info(
+                                "model={} total_emitted_chars={}", model_name, len(emitted_text)
+                            )
                             break
                         try:
-                            import json as _json
-                            chunk = _json.loads(data)
+                            chunk = _json_module.loads(data)
                         except Exception:
                             logger.bind(event="llm_stream_parse_failed").warning("stream_line={}", stripped[:500])
                             continue
@@ -160,6 +180,16 @@ class OpenAICompatibleClient:
             payload["tool_choice"] = tool_choice
         headers = {"Authorization": f"Bearer {self.settings.llm_api_key}", "User-Agent": "KimiCLI/1.6"}
 
+        tool_names = [t.get("function", {}).get("name", "?") for t in (tools or [])]
+        logger.bind(event="llm_request").info(
+            "model={} message_count={} tools={} tool_choice={} messages={}",
+            model_name,
+            len(messages),
+            tool_names or None,
+            tool_choice,
+            _truncate_messages_for_log(messages),
+        )
+
         try:
             # trust_env=False avoids accidental proxy forwarding for private/self-hosted gateways.
             timeout = httpx.Timeout(
@@ -184,10 +214,23 @@ class OpenAICompatibleClient:
 
         choices = data.get("choices") or []
         if not choices:
+            logger.bind(event="llm_response").warning("model={} empty_choices", model_name)
             return {"content": "", "tool_calls": [], "reasoning_content": ""}
         message = choices[0].get("message") or {}
-        return {
+        result = {
             "content": message.get("content") or "",
             "tool_calls": message.get("tool_calls") or [],
             "reasoning_content": message.get("reasoning_content") or "",
         }
+        content_preview = (result["content"] or "")[:500]
+        reasoning_preview = (result["reasoning_content"] or "")[:300]
+        logger.bind(event="llm_response").info(
+            "model={} content_len={} tool_calls_count={} reasoning_len={} content_preview={} reasoning_preview={}",
+            model_name,
+            len(result["content"]),
+            len(result["tool_calls"]),
+            len(result["reasoning_content"]),
+            content_preview,
+            reasoning_preview,
+        )
+        return result
